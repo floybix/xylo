@@ -1,5 +1,13 @@
 # issues
 
+## impl
+
+hand-craft genomes to test each operation.
+
+use a simple testing physics/world.
+
+## design
+
 what is the main loop for a cell?
   - reacting to new external stimulus only?
     - though including results of our own actions: reproduction / forces / sugar channels

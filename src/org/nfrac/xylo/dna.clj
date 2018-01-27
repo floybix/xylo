@@ -1,5 +1,5 @@
 (ns org.nfrac.xylo.dna
-  (:require [org.nfrac.xylo.aligner :as ali]))
+  (:require [org.nfrac.str-alignment.core :as ali]))
 
 (def template-bases
   "abcdefghijklmnopqrstuvwxyz12345")
@@ -35,6 +35,12 @@
 
 (def sugar-sig
   "5pqrs")
+
+;; Note that the operation codes are all complements to no-op template
+;; codes. The reason is that we want to be able to bind to functional
+;; genes, so as to reliably recognise parasites, for example, on a
+;; signal that can't be trivially changed to avoid detection. That is
+;; how immune systems work.
 
 (def complements
   (let [c0 (zipmap op-bases template-bases)
