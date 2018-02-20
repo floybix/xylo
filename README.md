@@ -2,6 +2,9 @@
 
 Arficial life simulation of plant-like cells.
 
+The point of this is to attempt [open-ended
+evolution](http://www.alife.org/workshops/oee3/).
+
 **TL;DR for nerds:** Xylo evolves cells with GRN-like dynamics and
 epigenetic marks for tissue specialisation. Cells use fuzzy string
 matching (like [StringMol](http://stringmol.york.ac.uk/)) to react to
@@ -11,9 +14,9 @@ The simulation takes place in a simple world, currently 2D. Cells
 occupy a position in space and, as you would expect, are subject to
 gravity and collide with other cells and the ground. They may bond to
 adjacent cells, thus forming multi-cellular structures, and may break
-such bonds. They may exert a force (accelerate) in a direction. They
-may reproduce, either asexually or sexually. All these operations
-consume energy.
+such bonds. They may exert a force -- accelerate -- in a
+direction. They may reproduce, either asexually or sexually. All these
+operations consume energy.
 
 Being plant-like cells, they generate energy from sunlight, meaning
 that they continuously generate energy unless shaded from
@@ -32,19 +35,19 @@ life models, this DNA has epigenetic properties: parts can be
 silenced. The non-silenced parts are called _open_ DNA. When a cell
 comes in contact with an external stimulus, the stimulus is always
 presented as a DNA-like sequence which is matched against the cell's
-open DNA. In addition, cells allow internal dynamics by accumulating
-molecular products -- more DNA-like sequences -- which again match
-against the cell's open DNA. Internal dynamics just means that there
-is some memory; behaviour can be more complex than an immediate
+open DNA. And cells allow internal dynamics by accumulating molecular
+products -- more DNA-like sequences -- which again match against the
+cell's open DNA. Internal dynamics just means that there is some
+memory in a cell; behaviour can be more complex than an immediate
 reaction.
 
 A match to a section of DNA can be inexact: a score is calculated
 allowing for mismatches, insertions and deletions (the Smith-Waterman
 algorithm). Since there may be multiple possible matching sites across
-a DNA sequence, these similarity scores are used to weight the
-probability of selecting each site. Once a site is bound, the DNA is
-read from that point forward and interpreted as a sequence of
-operations. These are introduced below.
+a DNA sequence, these scores are used to weight the probability of
+selecting each site. Once a site is bound, the DNA is read from that
+point forward and interpreted as a sequence of operations. These are
+introduced below.
 
 ### Reproduction
 

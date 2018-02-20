@@ -1,11 +1,14 @@
 (ns org.nfrac.xylo.dna
-  (:require [org.nfrac.str-alignment.core :as ali]))
+  (:require [org.nfrac.str-alignment.core :as ali]
+            [clojure.spec.alpha :as s]))
 
 (def template-bases
   "abcdefghijklmnopqrstuvwxyz12345")
 
 (def op-bases
   "+-=%:><$*@_^&?.#!")
+
+(s/def ::base (into (set template-bases) op-bases))
 
 (def op-names
   {\+ 'form-bond

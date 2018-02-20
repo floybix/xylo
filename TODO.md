@@ -8,6 +8,9 @@ use a simple testing physics/world.
 
 ## design
 
+internal dynamics (GRN) should have negatives -- repressors -- as well as positive TFs
+
+
 what is the main loop for a cell?
   - reacting to new external stimulus only?
     - though including results of our own actions: reproduction / forces / sugar channels
