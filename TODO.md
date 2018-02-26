@@ -1,5 +1,7 @@
 # issues
 
+xylo / xylica?
+
 ## impl
 
 hand-craft genomes to test each operation.
@@ -31,6 +33,35 @@ alignment should be stochastic based on match score
 and considering all candidate alignment locations.
 *********
 
+matching should include a monotonic function of alphabetical distance per base
+  - as a continuous selection signal
+  - alternatively: reduce alphabet to ~4 bases and interpret codons as operations.
+    - correspondingly increase match score threshold.
+
+(def op-names
+  '[end
+    form-bond
+    break-bond
+    clone
+    sex
+    about-face
+    rot-left
+    rot-right
+    sugar-start
+    sugar-stop
+    push
+    silence
+    unsilence
+    product
+    energy-test
+    goto
+    reference
+    ])
+
+17 ops.
+codons of 2 in alphabet of 5 = 25 so roughly half are coding.
+alternatively codons of 3 in alphabet of 4 = 64.
+codons of 3 in alphabet of 3 = 27.
 
 is binding/unbinding once per stimulus?
   - if created touching rock, only react once?
@@ -76,6 +107,15 @@ matching to self clone:
         - child uses following two templates, similarly.
       - unsilencing?
         - a normal action
+    - additional specialisation mechanism:
+      - initialise new cell with special birth products
+
+
+also: GRN-like products are transcribed from a template in DNA
+  - product will just match its original template
+  - so need translation
+  - if in complement, the template will match binding site in a clone cell
+  - so need translation different to cell-cell matching (not complement)
 
 silencing
   - continue to best match template alignment

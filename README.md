@@ -90,7 +90,7 @@ silencing
 
 ## Death
 
-
+* cells die if zero energy for N time steps.
 
 
 ## Stimuli
