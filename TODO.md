@@ -38,30 +38,37 @@ matching should include a monotonic function of alphabetical distance per base
   - alternatively: reduce alphabet to ~4 bases and interpret codons as operations.
     - correspondingly increase match score threshold.
 
-(def op-names
-  '[end
-    form-bond
-    break-bond
-    clone
-    sex
-    about-face
-    rot-left
-    rot-right
-    sugar-start
-    sugar-stop
-    push
-    silence
-    unsilence
-    product
-    energy-test
-    goto
-    reference
-    ])
+_physically oriented operations_
+1. 0 to-stimulus
+1. 0 to-sun
+1. 0 about-face
+1. 0 rot-left
+1. 0 rot-right
+1. 4 clone
+1. 4 sex - when stimulus is another cell
+1. 2 push
+1. 1 bond-form   }
+1. 1 bond-break  } when there is an adjacent cell in current orientation
+1. 1 sugar-start }
+1. 1 sugar-stop  }
 
-17 ops.
-codons of 2 in alphabet of 5 = 25 so roughly half are coding.
-alternatively codons of 3 in alphabet of 4 = 64.
-codons of 3 in alphabet of 3 = 27.
+_non oriented operations_
+1. 1 product - read template (up to next *terminator* or *stop*) - min length is 2 codons.
+1. 0 silence - generates a product which silences where it binds - from start to end of match.
+1. 0 unsilence - generates a product which unsilences where it binds _against full DNA_
+1. 0 goto - read template, find matching site as like a product (with translation), transfer control.
+1. 0 energy-test - threshold is proportional to current read location; same as goto _if_ energy meets threshold.
+1. 0 terminator (a set of codons?)
+1. 0 stop reaction
+
+= 18 ops + terminator(s).
+
+codons of 3 in alphabet of 4 = 64.
+  - leaves 46
+    - if 12 are terminators, expected length of templates is ~5 codons.
+  - distributions throughout encoding space?
+    - need non-terminator templates to match to terminators - in both complement and (product) translation.
+      - maybe not necessary / can always match approximately
 
 is binding/unbinding once per stimulus?
   - if created touching rock, only react once?

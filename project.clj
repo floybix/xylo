@@ -1,5 +1,5 @@
 (defproject org.nfrac/xylo "0.1.0-SNAPSHOT"
-  :description "Arficial life simulation of plant-like cells"
+  :description "Artificial life simulation of plant-like cells"
   :url "https://github.com/floybix/xylo"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}

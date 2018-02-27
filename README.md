@@ -1,6 +1,6 @@
 # Xylo
 
-Arficial life simulation of plant-like cells.
+Artificial life simulation of plant-like cells.
 
 The point of this is to attempt [open-ended
 evolution](http://www.alife.org/workshops/oee3/).
