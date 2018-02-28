@@ -1,55 +1,57 @@
 (ns org.nfrac.xylo.dna
   (:require [org.nfrac.str-alignment.core :as ali]
-            [clojure.spec.alpha :as s]))
+            [clojure.spec.alpha :as s])
+  (:refer-clojure :exclude [complement bases]))
 
-(def template-bases
-  "abcdefghijklmnopqrstuvwxyz12345")
+(def bases
+  '(a c g t))
 
-(def op-bases
-  "+-=%:><$*@_^&?.#!")
+(s/def ::base (set bases))
 
-(s/def ::base (into (set template-bases) op-bases))
+(def codon-length 3)
+
+(def n-codons (Math/pow (count bases) codon-length))
+
+(def codons
+  (for [a bases
+        b bases
+        c bases]
+    [a b c]))
+
+(def complement (zipmap bases (drop 2 (cycle bases))))
+(def translate (zipmap bases (drop 1 (cycle bases))))
+(def untranslate (zipmap (vals translate) (keys translate)))
 
 (def op-names
-  {\+ 'form-bond
-   \- 'break-bond
-   \= 'clone
-   \% 'sex
-   \: 'about-face
-   \< 'rot-left
-   \> 'rot-right
-   \$ 'sugar-start
-   \* 'sugar-stop
-   \@ 'reference
-   \_ 'silence
-   \^ 'unsilence
-   \& 'product
-   \? 'energy-test
-   \. 'end
-   \# 'goto
-   \! 'push
-   })
+  '[to-stimulus
+    to-sun
+    about-face
+    rot-left
+    rot-right
+    clone
+    sex
+    push
+    bond-form
+    bond-break
+    sugar-start
+    sugar-stop
+    ;; non-physical - control flow
+    product
+    silence
+    unsilence
+    goto
+    energy-test
+    stop-reaction])
 
-(def rock-sig
-  "12345")
+(def n-ops (count op-names))
 
-(def sun-sig
-  "abcde")
+(def n-terminators 12)
 
-(def sugar-sig
-  "5pqrs")
+;; excludes terminators and no-ops (as ambiguous)
+(def op->codon
+  (zipmap op-names codons))
 
-;; Note that the operation codes are all complements to no-op template
-;; codes. The reason is that we want to be able to bind to functional
-;; genes, so as to reliably recognise parasites, for example, on a
-;; signal that can't be trivially changed to avoid detection. That is
-;; how immune systems work.
-
-(def complements
-  (let [c0 (zipmap op-bases template-bases)
-        tt (drop (count op-bases) template-bases)
-        n2 (quot (count tt) 2)
-        tt-rot (concat (drop n2 tt) (take n2 tt))]
-    (reduce merge c0 [(zipmap (vals c0) (keys c0))
-                      (zipmap tt tt-rot)
-                      (zipmap tt-rot tt)])))
+(def codon->op
+  (zipmap codons (concat op-names
+                         (repeat (- n-codons n-ops n-terminators) :no-op)
+                         (repeat n-terminators :terminator))))

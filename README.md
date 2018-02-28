@@ -49,6 +49,11 @@ selecting each site. Once a site is bound, the DNA is read from that
 point forward and interpreted as a sequence of operations. These are
 introduced below.
 
+### General notes
+
+If an operation requires energy but the cell can not pay, the
+operation fails *and* the reaction stops.
+
 ### Reproduction
 
 a/sexually

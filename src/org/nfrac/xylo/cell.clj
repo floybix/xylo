@@ -100,7 +100,7 @@
 
   _NOW_
   * current offset into open DNA (read head)
-  * termination of current reaction
+  * stop current reaction
   * cell energy
   * cell orientation
 
@@ -113,7 +113,7 @@
   * world - sugar channels
 
   Therefore, this function returns keys
-  * :offset -- the next offset to read, or :terminate; nil means increment.
+  * :offset -- the next offset to read, or :stop-reaction; nil means increment.
   * :cell-immediate -- to be merged into cell
     - :energy
     - :orientation
@@ -122,7 +122,7 @@
     - :product
     - :new-cell
       - :in-direction
-      - :offset
+      - :init-offset
     - :new-bond
       - :in-direction
     - :break-bond
@@ -130,28 +130,43 @@
     - :new-channel
     - :break-channel
   "
-  (fn [op-base cell open-dna offset]
-    op-base))
+  (fn [op cell open-dna offset]
+    op))
 
-(defmethod reaction-op :default
-  [op-base cell open-dna offset]
+(defmethod reaction-op :no-op
+  [op cell open-dna offset]
   {})
 
-(defmethod reaction-op \.
-  [op-base cell open-dna offset]
-  {:offset :terminate})
-
-(defmethod reaction-op \&
-  [op-base cell open-dna offset]
-  {:delayed {:product nil}})
-
-(defmethod reaction-op \_
-  [op-base cell open-dna offset]
-  {:offset :terminate})
-
-(defmethod reaction-op \=
-  [op-base cell open-dna offset]
+(defmethod reaction-op :terminator
+  [op cell open-dna offset]
   {})
+
+(defmethod reaction-op 'stop-reaction
+  [op cell open-dna offset]
+  {:offset :stop-reaction})
+
+(defmethod reaction-op 'product
+  [op cell open-dna offset]
+  (let [cost 1
+        energy (:energy cell)]
+    (if (>= energy cost)
+      {:delayed {:product nil}
+       :cell-immediate {:energy (- energy cost)}}
+      ;; not enough energy
+      {:offset :stop-reaction})))
+
+(defmethod reaction-op 'silence
+  [op cell open-dna offset]
+  {:offset :terminate})
+
+(defmethod reaction-op 'to-sun
+  [op cell open-dna offset]
+  {:cell-immediate {:orientation 0.0}})
+
+(defmethod reaction-op 'about-face
+  [op cell open-dna offset]
+  (let [angle (:orientation cell)]
+    {:cell-immediate {:orientation (+ angle Math/PI)}}))
 
 
 (defn react-at-site
