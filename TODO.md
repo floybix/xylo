@@ -4,6 +4,10 @@ xylo / xylica?
 
 ## impl
 
+DNA as sequence not string
+
+  - str-matching use sequence not string
+
 hand-craft genomes to test each operation.
 
 use a simple testing physics/world.

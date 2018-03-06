@@ -55,3 +55,10 @@
   (zipmap codons (concat op-names
                          (repeat (- n-codons n-ops n-terminators) :no-op)
                          (repeat n-terminators :terminator))))
+
+(def terminators (keep (fn [[codon op]] (when (= op :terminator) codon)) codon->op))
+(def no-ops (keep (fn [[codon op]] (when (= op :no-op) codon)) codon->op))
+
+(def fixed-stimuli
+  (zipmap [:sun :ground]
+          (map #(apply concat (repeat 2 %)) no-ops)))
