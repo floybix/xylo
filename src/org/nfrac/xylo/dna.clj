@@ -4,7 +4,7 @@
   (:refer-clojure :exclude [complement bases]))
 
 (def bases
-  '(a c g t))
+  (seq "acgt"))
 
 (s/def ::base (set bases))
 
