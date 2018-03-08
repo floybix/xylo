@@ -4,8 +4,9 @@
             [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random]))
 
-(def match-weight 2)
-(def min-binding-score (* match-weight (+ 1 dna/codon-length)))
+(def match-base-weight 1)
+(def baseline-score 5)
+(def weight-power 1)
 (def min-template-bases (* 2 dna/codon-length))
 (def max-ops 36)
 (def max-energy 8)
@@ -47,6 +48,7 @@
            (first dna/terminators)
            (:ground dna/fixed-stimuli)
            (first dna/terminators)
+           (dna/op->codon 'stop-reaction)
            (last dna/no-ops)
            (last dna/no-ops)
            (map dna/complement (last dna/no-ops))
@@ -55,6 +57,7 @@
            (first dna/no-ops)
            (first (drop 2 dna/no-ops))
            (first dna/terminators)
+           (dna/op->codon 'sugar-stop)
            (dna/op->codon 'stop-reaction)
            (first dna/no-ops)
            (first (drop 2 dna/no-ops))
@@ -90,7 +93,7 @@
   and end (exclusive) indexes to open-dna of the match, aligned to
   codon boundaries."
   [open-dna vs-dna min-score]
-  (let [amat (ali/alignments open-dna vs-dna {:match-weight match-weight})
+  (let [amat (ali/alignments open-dna vs-dna {:match-weight match-base-weight})
         matches (ali/distinct-local-matches amat min-score)
         nnn dna/codon-length]
     (->> matches
@@ -121,17 +124,26 @@
            ())
    (sort-by :score >)))
 
+(defn binding-site-weight
+  [score baseline-score weight-power]
+  (->
+   (- score baseline-score)
+   (Math/pow weight-power)))
+
 (defn select-binding-site
   ""
   [cell stimuli time-step]
   (let [odna (open-dna (::dna cell) (::dna-open? cell))
         products (::products cell)
-        binds (all-binding-sites odna products stimuli min-binding-score)
-        cum (reductions + (map :score binds))
-        sum (last cum)
-        t' (mod time-step sum)
-        bind-index (count (take-while #(< % t') cum))]
-    (nth binds bind-index)))
+        binds (all-binding-sites odna products stimuli (inc baseline-score))
+        cum (reductions + (map #(binding-site-weight (:score %) baseline-score
+                                                     weight-power)
+                               binds))
+        sum (last cum)]
+    (when (pos? sum)
+      (let [t' (mod time-step sum)
+            bind-index (count (take-while #(< % t') cum))]
+        (nth binds bind-index)))))
 
 (defmulti reaction-op
   "Args are
@@ -236,7 +248,7 @@
         terminator dna/codon-length]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
-      (let [matches (binding-sites open-dna tem min-binding-score)]
+      (let [matches (binding-sites open-dna tem baseline-score)]
         (if (seq matches)
           (let [match (apply max-key :score matches)]
             {:offset (:bind-end-x match)})
@@ -268,29 +280,33 @@
 (defn react-at-site
   [cell open-dna bind-offset]
   (loop [offset bind-offset
-         cell cell
-         delayed []
-         counter 0]
+         counter 0
+         stop? false
+         ret {:cell cell
+              :delayed []
+              :reaction-log []}]
     (cond
+      stop?
+      ret
       (> counter max-ops)
-      {:cell cell :delayed delayed}
+      ret
       (>= offset (count open-dna))
-      {:cell cell :delayed delayed}
+      ret
       :else
-      (let [codon (vector (take dna/codon-length (drop offset open-dna)))
+      (let [codon (vec (take dna/codon-length (drop offset open-dna)))
             _ (assert (= dna/codon-length (count codon)))
             op (dna/codon->op codon)
             next-off* (+ offset dna/codon-length)
-            re (reaction-op op cell open-dna next-off*)
+            re (reaction-op op (:cell ret) open-dna next-off*)
             next-off (or (:offset re) next-off*)
             ]
-        (if (or (= next-off :stop-reaction)
-                (>= next-off (count open-dna)))
-          {:cell cell :delayed delayed}
-          (recur next-off
-                 (merge cell (:cell-immediate re))
-                 (conj delayed (:delayed re))
-                 (inc counter)))))))
+        (recur next-off
+               (inc counter)
+               (= next-off :stop-reaction)
+               (-> ret
+                   (update :cell merge (:cell-immediate re))
+                   (update :delayed conj (:delayed re))
+                   (update :reaction-log conj [op offset re])))))))
 
 ;; TODO instrument fn specs
 ;; invariant: dna / open-dna should be a multiple of codon-length
