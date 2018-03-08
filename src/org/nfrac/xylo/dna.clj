@@ -61,5 +61,5 @@
 
 (def fixed-stimuli
   (zipmap [:sun :ground]
-          (map #(apply str (apply concat (repeat 2 %)))
-               no-ops)))
+          (map #(apply str (apply concat %))
+               (partition 2 2 no-ops))))

@@ -26,18 +26,18 @@
 
 (defn test-seed-cell
   [time-step]
-  (let [cell (cell/seed-cell)
-        dna (::cell/dna cell)
-        odna (cell/open-dna (::cell/dna cell) (::cell/dna-open? cell))
+  (let [cell (-> (cell/seed-cell) (assoc :energy 4))
+        dna (:dna cell)
+        odna (cell/open-dna (:dna cell) (:dna-open? cell))
         cdna (apply str (map dna/complement dna))
         stim [(:ground dna/fixed-stimuli) cdna]
         binds (cell/all-binding-sites odna [] stim (inc cell/baseline-score))
-        bind (cell/select-binding-site cell stim time-step)
-        ans (cell/react-at-site cell odna (:bind-end-x bind))]
-    (clojure.pprint/pprint binds)
+        bind (cell/select-binding-site cell stim time-step)]
+    (doseq [b binds] (println b))
     (println "selected:")
-    (clojure.pprint/pprint bind)
-    (:reaction-log ans)
+    (println bind)
+    (let [ans (cell/react-at-site cell odna (:bind-end-x bind))]
+      (:reaction-log ans))
     ))
 
 ;; react to: ground, sunlight, sugar, touching cells, products
