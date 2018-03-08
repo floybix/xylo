@@ -6,21 +6,21 @@
 
 (s/def ::pos (s/tuple (s/double-in ::min 0 ::NaN? false)
                       (s/double-in ::min 0 ::NaN? false)))
-(s/def ::cells (s/every-kv ::phys/cell-id ::pos))
+(s/def ::parts (s/every-kv ::phys/part-id ::pos))
 (s/def ::width (s/double-in ::min 1 ::NaN? false))
 (s/def ::height (s/double-in ::min 1 ::NaN? false))
-(s/def ::bonds (s/every-kv ::phys/cell-id (s/every ::phys/cell-id)))
+(s/def ::bonds (s/every-kv ::phys/part-id (s/every ::phys/part-id)))
 
 (s/def ::world
   (s/keys :req-un [::width
                    ::height
-                   ::cells
+                   ::parts
                    ::bonds]))
 
 (defn- abs [x] (if (neg? x) (- x) x))
 
 (defn grounding
-  "Returns connected components -- collections of cell ids bonded
+  "Returns connected components -- collections of part ids bonded
   together -- in a tuple of two lists. Those in the first list are
   supported, those in the second list aren't."
   [ccs supp-id?]
@@ -46,15 +46,15 @@
                     (< 0.0 (- y iy) 1.0))))))
 
 (defn unsupported-ids
-  [cells bonds]
-  (let [singletons (keys (apply dissoc cells (keys bonds)))
+  [parts bonds]
+  (let [singletons (keys (apply dissoc parts (keys bonds)))
         g (apply graph/graph bonds singletons)
         ccs (alg/connected-components g)]
-    (loop [[supp un] (grounding ccs #(on-ground? (cells %)))]
+    (loop [[supp un] (grounding ccs #(on-ground? (parts %)))]
       (if (seq un)
         ;; look for components sitting directly on top of supported ones
-        (let [supp-xys (map cells (apply concat supp))
-              [newly-supp new-un] (grounding un #(sitting-on? (cells %) supp-xys))
+        (let [supp-xys (map parts (apply concat supp))
+              [newly-supp new-un] (grounding un #(sitting-on? (parts %) supp-xys))
               ]
           (if (seq newly-supp)
             (recur [(into supp newly-supp) new-un])
@@ -65,64 +65,64 @@
 
 (defrecord GridWorld [width
                       height
-                      cells
+                      parts
                       bonds]
   phys/PPhysics
 
   (step
    [this dt]
-   (let [uns (unsupported-ids cells bonds)]
+   (let [uns (unsupported-ids parts bonds)]
      (reduce (fn [this id]
-               (update-in this [:cells id 1] - dt))
+               (update-in this [:parts id 1] - dt))
              this
              uns)))
 
-  (create-cell
+  (create-part
    [this pos]
-   (let [id (gensym "cell")]
-     [id (assoc-in this [:cells id] pos)]))
+   (let [id (gensym "part")]
+     [id (assoc-in this [:parts id] pos)]))
 
-  (delete-cell
-   [this cell-id]
-   (let [bonded (get bonds cell-id)]
+  (delete-part
+   [this part-id]
+   (let [bonded (get bonds part-id)]
      (-> (assoc this :bonds (apply dissoc bonds bonded))
-         (update :bonds dissoc cell-id)
-         (update :cells dissoc cell-id))))
+         (update :bonds dissoc part-id)
+         (update :parts dissoc part-id))))
 
   (position
-   [this cell-id]
-   (get cells cell-id))
+   [this part-id]
+   (get parts part-id))
 
   (touching
-   [this cell-id]
-   (when-let [[x y] (get cells cell-id)]
-     (->> (dissoc cells cell-id)
+   [this part-id]
+   (when-let [[x y] (get parts part-id)]
+     (->> (dissoc parts part-id)
           (keep (fn [[id [ix iy]]]
               (when (and (< (abs (- x ix)) 1.0)
                          (< (abs (- y iy)) 1.0))
                 id))))))
 
   (touching-ground?
-   [this cell-id]
-   (when-let [[x y] (get cells cell-id)]
+   [this part-id]
+   (when-let [[x y] (get parts part-id)]
      (< y 1.0)))
 
   (in-sunlight?
-   [this cell-id]
-   (when-let [[x y] (get cells cell-id)]
-     (->> (dissoc cells cell-id)
+   [this part-id]
+   (when-let [[x y] (get parts part-id)]
+     (->> (dissoc parts part-id)
           (vals)
           (not-any? (fn [[ix iy]]
                       (and (< (abs (- x ix)) 1.0)
                            (> iy y)))))))
 
-  (cell-in-direction
-   [this cell-id angle]
-   (let [[x y] (get cells cell-id)
+  (part-in-direction
+   [this part-id angle]
+   (let [[x y] (get parts part-id)
          dx (* 0.5 (Math/cos angle))
          dy (* 0.5 (Math/sin angle))
          [ax ay] [(+ x dx) (+ y dy)]]
-     (->> (dissoc cells cell-id)
+     (->> (dissoc parts part-id)
           (keep (fn [[id [ix iy]]]
                   (let [d (+ (Math/pow (- ix ax) 2)
                              (Math/pow (- iy ay) 2))]
@@ -138,7 +138,7 @@
        (update-in [:bonds to-id] conj from-id)))
 
   (force-in-direction
-   [this cell-id angle]
+   [this part-id angle]
    this)
   )
 
@@ -147,5 +147,5 @@
   (map->GridWorld
    {:width width
     :height height
-    :cells {}
+    :parts {}
     :bonds {}}))
