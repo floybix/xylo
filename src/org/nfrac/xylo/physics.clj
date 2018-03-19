@@ -10,5 +10,8 @@
   (touching-ground? [this part-id])
   (in-sunlight? [this part-id])
   (part-in-direction [this part-id angle])
-  (create-bond [this from-id to-id])
+  (bond-form [this from-id to-id])
+  (bond-break [this from-id to-id])
   (force-in-direction [this part-id angle]))
+
+(s/def ::part-id ident?)

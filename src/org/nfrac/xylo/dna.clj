@@ -43,6 +43,8 @@
     energy-test
     stop-reaction])
 
+(s/def ::op-code (into (set op-names) [:terminator :no-op]))
+
 (def n-ops (count op-names))
 
 (def n-terminators 12)
@@ -60,6 +62,6 @@
 (def no-ops (keep (fn [[codon op]] (when (= op :no-op) codon)) codon->op))
 
 (def fixed-stimuli
-  (zipmap [:sun :ground]
+  (zipmap [:sun :ground :birth-default]
           (map #(apply str (apply concat %))
                (partition 2 2 no-ops))))

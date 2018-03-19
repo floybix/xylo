@@ -9,13 +9,32 @@
 (s/def ::parts (s/every-kv ::phys/part-id ::pos))
 (s/def ::width (s/double-in ::min 1 ::NaN? false))
 (s/def ::height (s/double-in ::min 1 ::NaN? false))
-(s/def ::bonds (s/every-kv ::phys/part-id (s/every ::phys/part-id)))
+(s/def ::bonds (s/every-kv ::phys/part-id (s/every ::phys/part-id, :kind set?)))
 
 (s/def ::world
   (s/keys :req-un [::width
                    ::height
                    ::parts
                    ::bonds]))
+
+(def PI Math/PI)
+(def TWOPI (* 2.0 PI))
+
+(defn in-pi-pi
+  "Returns the angle expressed in the range -pi to pi."
+  [angle]
+  (float
+   (cond
+     (> angle PI) (in-pi-pi (- angle TWOPI))
+     (< angle (- PI)) (in-pi-pi (+ angle TWOPI))
+     :else angle)))
+
+(defn polar-xy
+  "Convert polar coordinates (magnitude, angle) to cartesian
+   coordinates (x, y)."
+  [mag angle]
+  [(float (* mag (Math/cos angle)))
+   (float (* mag (Math/sin angle)))])
 
 (defn- abs [x] (if (neg? x) (- x) x))
 
@@ -83,11 +102,15 @@
      [id (assoc-in this [:parts id] pos)]))
 
   (delete-part
-   [this part-id]
-   (let [bonded (get bonds part-id)]
-     (-> (assoc this :bonds (apply dissoc bonds bonded))
-         (update :bonds dissoc part-id)
-         (update :parts dissoc part-id))))
+    [this part-id]
+    (let [bonded (get bonds part-id)
+          bonds (reduce (fn [bonds other-id]
+                          (update bonds other-id disj part-id))
+                        bonds
+                        bonded)]
+      (-> (assoc this :bonds bonds)
+          (update :bonds dissoc part-id)
+          (update :parts dissoc part-id))))
 
   (position
    [this part-id]
@@ -119,8 +142,7 @@
   (part-in-direction
    [this part-id angle]
    (let [[x y] (get parts part-id)
-         dx (* 0.5 (Math/cos angle))
-         dy (* 0.5 (Math/sin angle))
+         [dx dy] (polar-xy 0.5 angle)
          [ax ay] [(+ x dx) (+ y dy)]]
      (->> (dissoc parts part-id)
           (keep (fn [[id [ix iy]]]
@@ -131,11 +153,17 @@
           (sort-by second)
           (ffirst))))
 
-  (create-bond
-   [this from-id to-id]
-   (-> this
-       (update-in [:bonds from-id] conj to-id)
-       (update-in [:bonds to-id] conj from-id)))
+  (bond-form
+    [this from-id to-id]
+    (-> this
+        (update-in [:bonds from-id] #(conj (or % #{}) to-id))
+        (update-in [:bonds to-id] #(conj (or % #{}) from-id))))
+
+  (bond-break
+    [this from-id to-id]
+    (-> this
+        (update-in [:bonds from-id] disj to-id)
+        (update-in [:bonds to-id] disj from-id)))
 
   (force-in-direction
    [this part-id angle]
