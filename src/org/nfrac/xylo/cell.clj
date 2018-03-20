@@ -16,6 +16,8 @@
 (def min-template-bases (* 2 dna/codon-length))
 (def max-ops 36)
 (def max-energy 10)
+(def sun-energy 3)
+(def sugar-energy 1)
 (def starvation-steps 8)
 
 (defn codon-boundary? [n] (zero? (mod n dna/codon-length)))

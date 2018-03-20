@@ -56,12 +56,11 @@
                    ::sugar-from-to]))
 
 (defn find-stimuli
-  [world cell-id]
+  [world cell-id touch-ids]
   (let [cell-pop (:cell-pop world)
         phy (:physics world)
         cell (get cell-pop cell-id)
-        [x y] (phys/position phy cell-id)
-        others (phys/touching phy cell-id)]
+        [x y] (phys/position phy cell-id)]
     (cond-> []
       (phys/touching-ground? phy cell-id)
       (conj {:dna (dna/fixed-stimuli :ground)
@@ -69,7 +68,7 @@
       (phys/in-sunlight? phy cell-id)
       (conj {:dna (dna/fixed-stimuli :sun)
              :orientation (/ Math/PI 2)})
-      (seq others)
+      (seq touch-ids)
       (into (map (fn [id]
                    (let [cell-i (get cell-pop id)
                          odna (cell/open-dna (:dna cell-i) (:dna-open? cell-i))
@@ -78,7 +77,7 @@
                          angle (phys-g/v-angle [(- xi x) (- yi y)])]
                      {:dna cdna
                       :orientation angle}))
-                 others)))))
+                 touch-ids)))))
 
 (s/def ::stimulus
   (s/keys :req-un [::cell/dna
@@ -86,20 +85,21 @@
 
 (s/fdef find-stimuli
         :args (s/cat :world ::world
-                     :cell-id ::phys/part-id)
+                     :cell-id ::phys/part-id
+                     :touch-ids (s/every ::phys/part-id))
         :ret (s/every ::stimulus))
 
 (defn cell-reaction
   "Selects a reaction partner -- either external stimulus or an internal
   product -- and a binding site on the cell. If a product is selected,
   then the returned cell has that product decremented or removed."
-  [world cell-id time-step]
+  [world cell-id touch-ids time-step]
   (let [cell-pop (:cell-pop world)
         phy (:physics world)
         cell (get cell-pop cell-id)
         dna (:dna cell)
         odna (cell/open-dna (:dna cell) (:dna-open? cell))
-        stim (find-stimuli world cell-id)
+        stim (find-stimuli world cell-id touch-ids)
         bind (cell/select-binding-site cell (map :dna stim) time-step)]
     (when bind
       (let [[kind kind-i _] (:path bind)
@@ -116,6 +116,7 @@
 (s/fdef cell-reaction
         :args (s/cat :world ::world
                      :cell-id ::phys/part-id
+                     :touch-ids (s/every ::phys/part-id)
                      :time-step nat-int?)
         :ret (s/nilable ::cell/reaction))
 
@@ -180,19 +181,93 @@
 
       )))
 
-(defn world-step
-  [world time-step]
-  (let [cell-pop (:cell-pop world)]
-    ;; TODO sunlight / sugar
+(defn init-step
+  [world]
+  (let [phy (:physics world)]
+    (assoc world ::touching-cache
+           (into {}
+                 (map (fn [cell-id]
+                        [cell-id (phys/touching phy cell-id)]))
+                 (keys (:cell-pop world))))))
+
+(defn sun-step
+  [world]
+  (let [phy (:physics world)
+        touching (::touching-cache world)]
     (reduce (fn [world cell-id]
-              (if-let [re (cell-reaction world cell-id time-step)]
+              (cond-> world
+                (phys/in-sunlight? phy cell-id)
+                (update-in [:cell-pop cell-id :energy]
+                           #(min cell/max-energy (+ % cell/sun-energy)))))
+            world
+            (keys (:cell-pop world)))))
+
+(defn sugar-step
+  [world]
+  (let [sugar-from-to (:sugar-from-to world)
+        touching (::touching-cache world)]
+    (reduce (fn [world cell-id]
+              (let [others (touching cell-id)
+                    sugar-to (->> (sugar-from-to cell-id)
+                                  (filter others))]
+                (loop [sugar-to sugar-to
+                       cell-pop (:cell-pop world)
+                       my-e (get-in world [:cell-pop cell-id :energy])]
+                  (if-let [to (first sugar-to)]
+                    (let [to-e (get-in cell-pop [to :energy])
+                          diff-e (-> cell/sugar-energy
+                                     (min my-e)
+                                     (min (- cell/max-energy to-e)))]
+                      (recur (rest sugar-to)
+                             (assoc-in cell-pop [to :energy] (+ to-e diff-e))
+                             (- my-e diff-e)))
+                    ;; done
+                    (assoc world :cell-pop
+                           (assoc-in cell-pop [cell-id :energy] my-e))))))
+            world
+            (->> (:cell-pop world)
+                 (sort-by #(:energy (val %)) >)
+                 (map key)))))
+
+(defn death-step
+  [world]
+  (reduce (fn [world cell-id]
+            (let [cell (get-in world [:cell-pop cell-id])
+                  starv (:starvation cell)]
+              (if (pos? (:energy cell))
+                (assoc-in world [:cell-pop cell-id :starvation] 0)
+                ;; starving
+                (if (< starv cell/starvation-steps)
+                  (update-in world [:cell-pop cell-id :starvation] inc)
+                  ;; death
+                  (-> world
+                      (update :physics phys/delete-part cell-id)
+                      (update :cell-pop dissoc cell-id)
+                      (update :sugar-from-to dissoc cell-id))))))
+          world
+          (keys (:cell-pop world))))
+
+(defn reaction-step
+  [world time-step]
+  (let [touching (::touching-cache world)]
+    (reduce (fn [world cell-id]
+              (if-let [re (cell-reaction world cell-id (touching cell-id) time-step)]
                 (reduce (fn [w effect]
                           (apply-reaction-effect w cell-id effect))
                         (assoc-in world [:cell-pop cell-id] (:cell re))
                         (remove nil? (:effects re)))
                 world))
             world
-            (sort (keys cell-pop)))))
+            (sort (keys (:cell-pop world))))))
+
+(defn world-step
+  [world time-step]
+  (-> world
+      (init-step)
+      (sun-step)
+      (sugar-step)
+      (death-step)
+      (reaction-step time-step)))
 
 (defn new-world
   [width height]
