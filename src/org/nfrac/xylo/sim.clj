@@ -60,26 +60,36 @@
   (let [cell-pop (:cell-pop world)
         phy (:physics world)
         cell (get cell-pop cell-id)
-        others (phys/touching phy cell-id)
-        others-dna (map (fn [id]
-                          (get-in cell-pop [id :dna]))
-                        others)]
+        [x y] (phys/position phy cell-id)
+        others (phys/touching phy cell-id)]
     (cond-> []
       (phys/touching-ground? phy cell-id)
-      (conj (dna/fixed-stimuli :ground))
+      (conj {:dna (dna/fixed-stimuli :ground)
+             :orientation (- (/ Math/PI 2))})
       (phys/in-sunlight? phy cell-id)
-      (conj (dna/fixed-stimuli :sun))
+      (conj {:dna (dna/fixed-stimuli :sun)
+             :orientation (/ Math/PI 2)})
       (seq others)
-      (into (map (fn [dna]
-                   (apply str (map dna/complement dna)))
-                 others-dna)))))
+      (into (map (fn [id]
+                   (let [cell-i (get cell-pop id)
+                         odna (cell/open-dna (:dna cell-i) (:dna-open? cell-i))
+                         cdna (apply str (map dna/complement odna))
+                         [xi yi] (phys/position phy id)
+                         angle (phys-g/v-angle [(- xi x) (- yi y)])]
+                     {:dna cdna
+                      :orientation angle}))
+                 others)))))
+
+(s/def ::stimulus
+  (s/keys :req-un [::cell/dna
+                   ::cell/orientation]))
 
 (s/fdef find-stimuli
         :args (s/cat :world ::world
                      :cell-id ::phys/part-id)
-        :ret (s/every ::dna))
+        :ret (s/every ::stimulus))
 
-(defn reaction
+(defn cell-reaction
   "Selects a reaction partner -- either external stimulus or an internal
   product -- and a binding site on the cell. If a product is selected,
   then the returned cell has that product decremented or removed."
@@ -90,17 +100,20 @@
         dna (:dna cell)
         odna (cell/open-dna (:dna cell) (:dna-open? cell))
         stim (find-stimuli world cell-id)
-        bind (cell/select-binding-site cell stim time-step)]
+        bind (cell/select-binding-site cell (map :dna stim) time-step)]
     (when bind
-      (let [ret (cell/react-at-site cell odna (:bind-end-x bind))
-            [kind kind-i _] (:path bind)]
+      (let [[kind kind-i _] (:path bind)
+            cell (cond-> cell
+                   (= kind :stimuli)
+                   (assoc cell :orientation (:orientation (nth stim kind-i))))
+            ret (cell/react-at-site cell odna (:bind-end-x bind))]
         (if (= kind :products)
           (let [[product n] (-> cell :product-count (nth kind-i))]
             (if (> n 1)
               (update-in ret [:cell :product-count product] dec)
               (update-in ret [:cell :product-count] dissoc product))))))))
 
-(s/fdef reaction
+(s/fdef cell-reaction
         :args (s/cat :world ::world
                      :cell-id ::phys/part-id
                      :time-step nat-int?)
@@ -172,7 +185,7 @@
   (let [cell-pop (:cell-pop world)]
     ;; TODO sunlight / sugar
     (reduce (fn [world cell-id]
-              (if-let [re (reaction world cell-id time-step)]
+              (if-let [re (cell-reaction world cell-id time-step)]
                 (reduce (fn [w effect]
                           (apply-reaction-effect w cell-id effect))
                         (assoc-in world [:cell-pop cell-id] (:cell re))

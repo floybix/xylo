@@ -23,8 +23,7 @@
 (def untranslate (zipmap (vals translate) (keys translate)))
 
 (def op-names
-  '[to-stimulus
-    to-sun
+  '[to-sun
     about-face
     rot-left
     rot-right

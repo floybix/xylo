@@ -36,6 +36,11 @@
   [(float (* mag (Math/cos angle)))
    (float (* mag (Math/sin angle)))])
 
+(defn v-angle
+  "Angle of a 2d geometric vector in radians in range -pi to pi."
+  [[x y]]
+  (float (Math/atan2 y x)))
+
 (defn- abs [x] (if (neg? x) (- x) x))
 
 (defn grounding

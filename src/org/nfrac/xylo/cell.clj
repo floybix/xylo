@@ -33,8 +33,8 @@
 
 (s/def ::energy nat-int?)
 
-(s/def ::orientation (s/double-in :min (* -2 Math/PI)
-                                  :max (* 2 Math/PI) :NaN? false))
+(s/def ::orientation (s/double-in :min (- Math/PI)
+                                  :max (+ Math/PI) :NaN? false))
 
 (s/def ::starvation nat-int?)
 
@@ -64,7 +64,6 @@
   (->>
    (concat (first dna/terminators)
            (dna/fixed-stimuli :sun)
-           (dna/op->codon 'to-stimulus)
            (dna/op->codon 'clone)
            (dna/op->codon 'bond-form)
            (dna/op->codon 'stop-reaction)
@@ -376,11 +375,7 @@
 
 (defmethod reaction-op* 'to-sun
   [op cell open-dna offset]
-  {:cell-immediate {:orientation 0.0}})
-
-(defmethod reaction-op* 'to-stimulus
-  [op cell open-dna offset]
-  {:cell-immediate {}})
+  {:cell-immediate {:orientation (/ Math/PI 2)}})
 
 (defmethod reaction-op* 'about-face
   [op cell open-dna offset]
