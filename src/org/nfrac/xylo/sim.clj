@@ -45,13 +45,11 @@
 (s/def ::cell-pop
   (s/map-of ::phys/cell-id ::cell/cell))
 
-(s/def ::physics #(satisfies? phys/PPhysics %))
-
 (s/def ::sugar-from-to
   (s/every-kv ::phys/part-id (s/every ::phys/part-id, :kind set?)))
 
 (s/def ::world
-  (s/keys :req-un [::physics
+  (s/keys :req-un [::phys/physics
                    ::cell-pop
                    ::sugar-from-to]))
 
@@ -129,7 +127,7 @@
     (case fx
 
       :product
-      (let [prod fx-args]
+      (let [prod (:dna fx-args)]
         (update-in world [:cell-pop cell-id :product-count prod]
                    (fnil inc 0)))
 
@@ -152,47 +150,44 @@
             (update :cell-pop assoc new-id new-cell)))
 
       :sex
-      (let [dir (:in-direction fx-args)]
-        (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
-          (let [[x y] (phys/position phy cell-id)
-                [dx dy] (phys-g/polar-xy 1.0 (+ dir Math/PI))
-                new-pos [(+ x dx) (+ y dy)]
-                child-product (:child-product fx-args)
-                [new-id phy] (phys/create-part phy new-pos)
-                sex-cell (get cell-pop targ-id)
-                dna (:dna cell)
-                sex-dna (:dna sex-cell)]
+      (let [dir (:in-direction fx-args)
+            sex-id (:sex-id fx-args)
+            [x y] (phys/position phy cell-id)
+            [dx dy] (phys-g/polar-xy 1.0 (+ dir Math/PI))
+            new-pos [(+ x dx) (+ y dy)]
+            child-product (:child-product fx-args)
+            [new-id phy] (phys/create-part phy new-pos)
+            sex-cell (get cell-pop sex-id)
+            dna (:dna cell)
+            sex-dna (:dna sex-cell)
             ;;TODO
-            world)
-          world))
+            new-dna dna
+            new-cell (-> (cell/new-cell new-dna)
+                         (assoc :orientation (:orientation cell))
+                         (assoc-in [:product-counts child-product] 1))]
+        (-> world
+            (assoc :physics phy)
+            (update :cell-pop assoc new-id new-cell)))
 
       :bond-form
-      (let [dir (:in-direction fx-args)]
-        (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
-          (update world :physics phys/bond-form cell-id targ-id)
-          world))
+      (let [targ-id (:target fx-args)]
+        (update world :physics phys/bond-form cell-id targ-id))
 
       :bond-break
-      (let [dir (:in-direction fx-args)]
-        (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
-          (update world :physics phys/bond-break cell-id targ-id)
-          world))
+      (let [targ-id (:target fx-args)]
+        (update world :physics phys/bond-break cell-id targ-id))
 
       :push
       (let [dir (:in-direction fx-args)]
         (update world :physics phys/force-in-direction cell-id dir))
 
       :sugar-start
-      (let [dir (:in-direction fx-args)]
-        (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
-          (update-in world [:sugar-from-to cell-id] #(conj (or % #{}) targ-id))
-          world))
+      (let [targ-id (:target fx-args)]
+        (update-in world [:sugar-from-to cell-id] #(conj (or % #{}) targ-id)))
 
       :sugar-stop
-      (let [dir (:in-direction fx-args)]
-        (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
-          (update-in world [:sugar-from-to cell-id] disj targ-id)
-          world))
+      (let [targ-id (:target fx-args)]
+        (update-in world [:sugar-from-to cell-id] disj targ-id))
 
       )))
 

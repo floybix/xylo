@@ -14,4 +14,6 @@
   (bond-break [this from-id to-id])
   (force-in-direction [this part-id angle]))
 
+(s/def ::physics #(satisfies? PPhysics %))
+
 (s/def ::part-id ident?)
