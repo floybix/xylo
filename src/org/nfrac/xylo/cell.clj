@@ -61,7 +61,7 @@
         :args (s/cat :dna ::dna)
         :ret ::cell)
 
-(defn seed-cell
+(defn seed-dna
   []
   (->>
    (concat (first dna/terminators)
@@ -89,8 +89,7 @@
            (dna/op->codon 'sugar-start)
            (dna/op->codon 'stop-reaction)
            )
-   (apply str)
-   (new-cell)))
+   (apply str)))
 
 (defn vector-subset
   [xs ?s]
@@ -107,6 +106,7 @@
       (persistent! out))))
 
 (defn open-dna
+  "Cuts out any silenced parts of the DNA."
   [dna dna-open?]
   (apply str (vector-subset dna dna-open?)))
 
@@ -130,7 +130,7 @@
          (s/keys :req-un [::path])))
 
 (defn binding-sites
-  "Returns a collection of possible binding sites of vs-dna onto open-dna.
+  "Finds possible binding sites of vs-dna onto open-dna, with scores.
   Only sites with a sufficient score from Smith-Waterman matching are
   included. Keys bind-begin and bind-end-x give the start (inclusive)
   and end (exclusive) indexes to open-dna of the match, aligned to
@@ -159,10 +159,12 @@
         :ret (s/coll-of ::bind))
 
 (defn all-binding-sites
-  "Returns a collection of maps {:offset :score :path}, where offset is
-  an index into open-dna. :path describes the source of each match
-  as [kind i j]; kind is :stimuli or :products, j is the index into
-  its dna-like sequence. Ordered by score decreasing."
+  "Finds all possible binding sites of a cell's DNA onto internal
+  products or external stimuli. The results include a key :path which
+  describes the source of each match as [kind i j]; kind is :stimuli
+  or :products, i indicates which stimulus or product, and j is the
+  index into its dna-like sequence. Ordered by score decreasing, and
+  then by DNA offset."
   [open-dna products stimuli min-score]
   (->>
    (concat (map vector (repeat :products) (range) products)
@@ -189,7 +191,11 @@
    (Math/pow weight-power)))
 
 (defn select-binding-site
-  ""
+  "Selects one binding site on the cell's open DNA from any matching
+  products or stimuli. The result includes a :path indicating the
+  match source. Selection probability is according to bind
+  score (transformed). However, it is not stochastic, but simply
+  divided proportionally."
   [cell stimuli time-step]
   (let [odna (open-dna (:dna cell) (:dna-open? cell))
         products (keys (:product-counts cell))
@@ -210,6 +216,9 @@
         :ret (s/nilable ::bind-with-path))
 
 (s/def ::offset (s/and nat-int? codon-boundary?))
+
+(s/def ::next-offset (s/or :i ::offset
+                           :kw #{:stop-reaction}))
 
 (s/def ::cell-immediate
   (s/keys :opt-un [::energy
@@ -236,56 +245,18 @@
                        ::push)]))
 
 (s/def ::reaction-step
-  (s/keys :opt-un [::offset
+  (s/keys :opt-un [::next-offset
                    ::cell-immediate
                    ::delayed]))
 
 (defmulti reaction-op*
-  "Args are
-  * op - the symbol or keyword interpreted from current codon.
-  * cell - current cell state.
-  * open-dna - dna sequence omitting any silenced parts.
-  * offset - current offset _after_ current op codon.
-
-  Reaction operations can change:
-
-  _NOW_
-  * current offset into open DNA (read head)
-  * stop current reaction
-  * cell energy
-  * cell orientation
-
-  _LATER_
-  * cell DNA silencing
-  * cell products
-  * world - creating new cells - with initialisation for specialisation
-  * world - forming bonds
-  * world - force
-  * world - sugar channels
-
-  Therefore, this function returns keys
-  * :offset -- the next offset to read, or :stop-reaction; nil means no change.
-  * :cell-immediate -- to be merged into cell
-    - :energy
-    - :orientation
-    - :dna-open?
-  * :delayed
-    - :product
-    - :clone
-      - :in-direction
-      - :init-offset
-    - :bond-form
-      - :in-direction
-    - :bond-break
-      - :in-direction
-    - :sugar-start
-    - :sugar-stop
-    - :push
-  "
   (fn [op cell open-dna offset]
     op))
 
 (defn reaction-op
+  "Computes a reaction from a single codon of DNA, interpreted into a
+  symbolic op code. The offset argument here is an index into DNA
+  _after_ the current op codon."
   [op cell open-dna offset]
   (reaction-op* op cell open-dna offset))
 
@@ -306,7 +277,7 @@
 
 (defmethod reaction-op* 'stop-reaction
   [op cell open-dna offset]
-  {:offset :stop-reaction})
+  {:next-offset :stop-reaction})
 
 (defn read-template
   [open-dna offset]
@@ -334,12 +305,12 @@
             terminator dna/codon-length]
         (if (>= (count tem) min-template-bases)
           {:delayed {:product (map dna/translate tem)}
-           :offset (+ offset (count tem) terminator)
+           :next-offset (+ offset (count tem) terminator)
            :cell-immediate {:energy (- energy cost)}}
           ;; template too short
-          {:offset (+ offset (count tem) terminator)}))
+          {:next-offset (+ offset (count tem) terminator)}))
       ;; not enough energy
-      {:offset :stop-reaction})))
+      {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'silence
   [op cell open-dna offset]
@@ -359,11 +330,11 @@
       (let [matches (binding-sites open-dna tem baseline-score)]
         (if (seq matches)
           (let [match (apply max-key :score matches)]
-            {:offset (:bind-end-x match)})
+            {:next-offset (:bind-end-x match)})
           ;; no match
-          {:offset (+ offset (count tem) terminator)}))
+          {:next-offset (+ offset (count tem) terminator)}))
       ;; template too short
-      {:offset (+ offset (count tem) terminator)})))
+      {:next-offset (+ offset (count tem) terminator)})))
 
 (defmethod reaction-op* 'energy-test
   [op cell open-dna offset]
@@ -373,7 +344,7 @@
       ;; test failed, skip goto
       (let [tem (read-template open-dna offset)
             terminator dna/codon-length]
-        {:offset (+ offset (count tem) terminator)}))))
+        {:next-offset (+ offset (count tem) terminator)}))))
 
 (defmethod reaction-op* 'to-sun
   [op cell open-dna offset]
@@ -402,15 +373,15 @@
       {:delayed {:push {:in-direction (:orientation cell)}}
        :cell-immediate {:energy (- energy cost)}}
       ;; not enough energy
-      {:offset :stop-reaction})))
+      {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'sugar-start
   [op cell open-dna offset]
-  {})
+  {:delayed {:sugar-start {:in-direction (:orientation cell)}}})
 
 (defmethod reaction-op* 'sugar-stop
   [op cell open-dna offset]
-  {})
+  {:delayed {:sugar-stop {:in-direction (:orientation cell)}}})
 
 (defmethod reaction-op* 'bond-form
   [op cell open-dna offset]
@@ -420,7 +391,7 @@
       {:delayed {:bond-form {:in-direction (:orientation cell)}}
        :cell-immediate {:energy (- energy cost)}}
       ;; not enough energy
-      {:offset :stop-reaction})))
+      {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'bond-break
   [op cell open-dna offset]
@@ -436,23 +407,29 @@
                      (dna/fixed-stimuli :birth-default))]
         {:delayed {:clone {:in-direction (:orientation cell)
                            :child-product prod}}
-         :offset (:offset prod-re)
+         :next-offset (:next-offset prod-re)
          :cell-immediate {:energy (- energy cost)}})
       ;; not enough energy
-      {:offset :stop-reaction})))
+      {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'sex
   [op cell open-dna offset]
-  (let [cost 4
-        energy (:energy cell)]
-    (if (>= energy cost)
-      {:delayed {:sex {:in-direction (:orientation cell)
-                       :init-offset (* 8 dna/codon-length)}}
-       :cell-immediate {:energy (- energy cost)}}
-      ;; not enough energy
-      {:offset :stop-reaction})))
+  (let [re (reaction-op 'clone cell open-dna offset)]
+    (if-let [clone (get-in re [:delayed :clone])]
+      (-> re
+          (assoc-in [:delayed :sex] clone)
+          (update :delayed dissoc :clone))
+      re)))
 
 (defn react-at-site
+  "Runs a reaction on cell's open DNA starting at the given
+  offset. Interprets each codon of DNA as a symbolic operation. Each
+  codon's reaction step may control the next read offset; otherwise we
+  continue along the DNA. The reaction stops when one of:
+
+  * a reaction step returns a stop instruction (e.g. stop-reaction codon);
+  * we reach the end of the DNA;
+  * the instruction counter reaches a limit."
   [cell open-dna bind-offset]
   (loop [offset bind-offset
          counter 0
@@ -473,7 +450,7 @@
             op (dna/codon->op codon)
             next-off* (+ offset dna/codon-length)
             re (reaction-op op (:cell ret) open-dna next-off*)
-            next-off (or (:offset re) next-off*)
+            next-off (or (:next-offset re) next-off*)
             ]
         (recur next-off
                (inc counter)

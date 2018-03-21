@@ -27,7 +27,7 @@
 
 (defn test-seed-cell
   [time-step]
-  (let [cell (-> (cell/seed-cell) (assoc :energy 4))
+  (let [cell (-> (cell/seed-dna) (cell/new-cell) (assoc :energy 4))
         dna (:dna cell)
         odna (cell/open-dna (:dna cell) (:dna-open? cell))
         cdna (apply str (map dna/complement dna))
@@ -151,6 +151,21 @@
             (assoc :physics phy)
             (update :cell-pop assoc new-id new-cell)))
 
+      :sex
+      (let [dir (:in-direction fx-args)]
+        (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
+          (let [[x y] (phys/position phy cell-id)
+                [dx dy] (phys-g/polar-xy 1.0 (+ dir Math/PI))
+                new-pos [(+ x dx) (+ y dy)]
+                child-product (:child-product fx-args)
+                [new-id phy] (phys/create-part phy new-pos)
+                sex-cell (get cell-pop targ-id)
+                dna (:dna cell)
+                sex-dna (:dna sex-cell)]
+            ;;TODO
+            world)
+          world))
+
       :bond-form
       (let [dir (:in-direction fx-args)]
         (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
@@ -182,6 +197,7 @@
       )))
 
 (defn init-step
+  "Builds caches shared by sub step functions."
   [world]
   (let [phy (:physics world)]
     (assoc world ::touching-cache
@@ -190,7 +206,12 @@
                         [cell-id (phys/touching phy cell-id)]))
                  (keys (:cell-pop world))))))
 
+(s/fdef init-step
+        :args (s/cat :world ::world)
+        :ret ::world)
+
 (defn sun-step
+  "Accumulates solar energy in cells receiving direct sunlight."
   [world]
   (let [phy (:physics world)
         touching (::touching-cache world)]
@@ -202,14 +223,21 @@
             world
             (keys (:cell-pop world)))))
 
+(s/fdef sun-step
+        :args (s/cat :world ::world)
+        :ret ::world)
+
 (defn sugar-step
+  "Transfers energy between cells along sugar channels. Channels are
+  only open when the cells are also touching. The amount transferred
+  is limited by availability on the supply side and capacity on the
+  demand side."
   [world]
   (let [sugar-from-to (:sugar-from-to world)
         touching (::touching-cache world)]
     (reduce (fn [world cell-id]
-              (let [others (touching cell-id)
-                    sugar-to (->> (sugar-from-to cell-id)
-                                  (filter others))]
+              (let [sugar-to (->> (sugar-from-to cell-id)
+                                  (filter (touching cell-id)))]
                 (loop [sugar-to sugar-to
                        cell-pop (:cell-pop world)
                        my-e (get-in world [:cell-pop cell-id :energy])]
@@ -229,7 +257,14 @@
                  (sort-by #(:energy (val %)) >)
                  (map key)))))
 
+(s/fdef sugar-step
+        :args (s/cat :world ::world)
+        :ret ::world)
+
 (defn death-step
+  "Increments the starvation counter on cells with zero energy. If a
+  cell has been starving for long enough it dies and is removed from
+  the simulation, along with any bonds and sugar channels."
   [world]
   (reduce (fn [world cell-id]
             (let [cell (get-in world [:cell-pop cell-id])
@@ -247,7 +282,12 @@
           world
           (keys (:cell-pop world))))
 
+(s/fdef death-step
+        :args (s/cat :world ::world)
+        :ret ::world)
+
 (defn reaction-step
+  "Selects a reaction for each cell and applies its effects."
   [world time-step]
   (let [touching (::touching-cache world)]
     (reduce (fn [world cell-id]
@@ -259,6 +299,11 @@
                 world))
             world
             (sort (keys (:cell-pop world))))))
+
+(s/fdef reaction-step
+        :args (s/cat :world ::world
+                     :time-step nat-int?)
+        :ret ::world)
 
 (defn world-step
   [world time-step]
@@ -272,7 +317,7 @@
 (defn new-world
   [width height]
   (let [phy (phys-g/init width height)
-        cell (cell/seed-cell)
+        cell (cell/new-cell (cell/seed-dna))
         [cell-id phy] (phys/create-part phy [(quot width 2) 0])]
     {:physics phy
      :cell-pop {cell-id cell}
