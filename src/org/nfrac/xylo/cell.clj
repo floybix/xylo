@@ -277,26 +277,29 @@
   [op cell open-dna offset cell-id phy]
   {})
 
+(defmethod reaction-op* :silence-terminator
+  [op cell open-dna offset cell-id phy]
+  {})
+
 (defmethod reaction-op* 'stop-reaction
   [op cell open-dna offset cell-id phy]
   {:next-offset :stop-reaction})
 
 (defn read-template
-  [open-dna offset]
-  (loop [dna (drop offset open-dna)
-         tem []]
-    (if (seq dna)
-      (let [codon (vec (take dna/codon-length dna))
-            op (dna/codon->op codon)]
-        (case op
-          :terminator
-          tem
-          'stop-reaction
-          tem
-          ;; otherwise, append and continue
-          (recur (drop dna/codon-length dna) (into tem codon))))
-      ;; end of DNA
-      tem)))
+  ([open-dna offset]
+   (read-template open-dna offset #{:terminator 'stop-reaction}))
+  ([open-dna offset terminator?]
+   (loop [dna (drop offset open-dna)
+          tem []]
+     (if (seq dna)
+       (let [codon (vec (take dna/codon-length dna))
+             op (dna/codon->op codon)]
+         (if (terminator? op)
+           tem
+           ;; otherwise, append and continue
+           (recur (drop dna/codon-length dna) (into tem codon))))
+       ;; end of DNA
+       tem))))
 
 (defmethod reaction-op* 'product
   [op cell open-dna offset cell-id phy]
@@ -316,8 +319,16 @@
 
 (defmethod reaction-op* 'silence
   [op cell open-dna offset cell-id phy]
-  ;; TODO
-  {})
+  (let [dna (:dna cell)
+        ;; NOTE dna not open-dna
+        tem (read-template dna offset #(= % :silence-terminator))
+        terminator dna/codon-length]
+    (if (>= (count tem) min-template-bases)
+      ;; TODO
+      {
+       :next-offset (+ offset (count tem) terminator)}
+      ;; template too short
+      {:next-offset (+ offset (count tem) terminator)})))
 
 (defmethod reaction-op* 'unsilence
   [op cell open-dna offset cell-id phy]

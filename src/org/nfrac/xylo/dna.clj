@@ -42,10 +42,8 @@
     energy-test
     stop-reaction])
 
-(s/def ::op-code (into (set op-names) [:terminator :no-op]))
-
 (def n-ops (count op-names))
-
+(def n-silence-terminators 6)
 (def n-terminators 12)
 
 ;; excludes terminators and no-ops (as ambiguous)
@@ -54,8 +52,11 @@
 
 (def codon->op
   (zipmap codons (concat op-names
-                         (repeat (- n-codons n-ops n-terminators) :no-op)
-                         (repeat n-terminators :terminator))))
+                         (repeat n-terminators :terminator)
+                         (repeat n-silence-terminators :silence-terminator)
+                         (repeat :no-op)))
+
+(s/def ::op-code (set (vals codon->op)))
 
 (def terminators (keep (fn [[codon op]] (when (= op :terminator) codon)) codon->op))
 (def no-ops (keep (fn [[codon op]] (when (= op :no-op) codon)) codon->op))
