@@ -10,7 +10,7 @@
 
 (def codon-length 3)
 
-(def n-codons (Math/pow (count bases) codon-length))
+(def n-codons (int (Math/pow (count bases) codon-length)))
 
 (def codons
   (for [a bases
@@ -54,7 +54,7 @@
   (zipmap codons (concat op-names
                          (repeat n-terminators :terminator)
                          (repeat n-silence-terminators :silence-terminator)
-                         (repeat :no-op)))
+                         (repeat :no-op))))
 
 (s/def ::op-code (set (vals codon->op)))
 

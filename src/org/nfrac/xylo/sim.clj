@@ -29,7 +29,7 @@
   [time-step]
   (let [cell (-> (cell/seed-dna) (cell/new-cell) (assoc :energy 4))
         dna (:dna cell)
-        odna (cell/open-dna (:dna cell) (:dna-open? cell))
+        odna (cell/get-open-dna cell)
         cdna (apply str (map dna/complement dna))
         stim [(dna/fixed-stimuli :ground) cdna]
         binds (cell/all-binding-sites odna [] stim (inc cell/baseline-score))
@@ -37,7 +37,7 @@
     (doseq [b binds] (println b))
     (println "selected:")
     (println bind)
-    (let [ans (cell/react-at-site cell odna (:bind-end-x bind))]
+    (let [ans (cell/react-at-site cell (:bind-end-x bind) 1 (phys-g/init 10 10))]
       (:reaction-log ans))
     ))
 
@@ -69,7 +69,7 @@
       (seq touch-ids)
       (into (map (fn [id]
                    (let [cell-i (get cell-pop id)
-                         odna (cell/open-dna (:dna cell-i) (:dna-open? cell-i))
+                         odna (cell/get-open-dna cell-i)
                          cdna (apply str (map dna/complement odna))
                          [xi yi] (phys/position phy id)
                          angle (phys-g/v-angle [(- xi x) (- yi y)])]
@@ -95,8 +95,6 @@
   (let [cell-pop (:cell-pop world)
         phy (:physics world)
         cell (get cell-pop cell-id)
-        dna (:dna cell)
-        odna (cell/open-dna (:dna cell) (:dna-open? cell))
         stim (find-stimuli world cell-id touch-ids)
         bind (cell/select-binding-site cell (map :dna stim) time-step)]
     (when bind
@@ -104,7 +102,7 @@
             cell (cond-> cell
                    (= kind :stimuli)
                    (assoc cell :orientation (:orientation (nth stim kind-i))))
-            ret (cell/react-at-site cell odna (:bind-end-x bind))]
+            ret (cell/react-at-site cell (:bind-end-x bind) cell-id phy)]
         (if (= kind :products)
           (let [[product n] (-> cell :product-count (nth kind-i))]
             (if (> n 1)

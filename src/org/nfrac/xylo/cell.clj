@@ -51,12 +51,15 @@
 
 (defn new-cell
   [dna]
-  {:dna dna
-   :dna-open? (vec (repeat (count dna) true))
-   :product-counts {}
-   :orientation 0.0
-   :energy 1
-   :starvation 0})
+  (->
+    {:dna dna
+     :dna-open? (vec (repeat (count dna) true))
+     :product-counts {}
+     :orientation 0.0
+     :energy 1
+     :starvation 0}
+    (vary-meta merge
+               {::open-dna-cache (atom nil)})))
 
 (s/fdef new-cell
         :args (s/cat :dna ::dna)
@@ -115,6 +118,21 @@
         :args (s/cat :dna ::dna :dna-open? ::dna-open?)
         :ret ::dna)
 
+(defn get-open-dna
+  [cell]
+  (let [od-cache (::open-dna-cache (meta cell))
+        dna (:dna cell)
+        dna-open? (:dna-open? cell)
+        hash-key [(hash dna) (hash dna-open?)]]
+    (if (= hash-key (:hash-key @od-cache))
+      (:val @od-cache)
+      (:val (reset! od-cache {:hash-key hash-key
+                              :val (open-dna dna dna-open?)})))))
+
+(s/fdef get-open-dna
+        :args (s/cat :cell ::cell)
+        :ret ::dna)
+
 (s/def ::bind-begin (s/and nat-int? codon-boundary?))
 (s/def ::bind-end-x (s/and nat-int? codon-boundary?))
 (s/def ::score (s/double-in :min 0 :NaN? false))
@@ -131,13 +149,13 @@
          (s/keys :req-un [::path])))
 
 (defn binding-sites
-  "Finds possible binding sites of vs-dna onto open-dna, with scores.
+  "Finds possible binding sites of vs-dna onto dna, with scores.
   Only sites with a sufficient score from Smith-Waterman matching are
   included. Keys bind-begin and bind-end-x give the start (inclusive)
-  and end (exclusive) indexes to open-dna of the match, aligned to
-  codon boundaries."
-  [open-dna vs-dna min-score]
-  (let [amat (ali/alignments open-dna vs-dna alignment-options)
+  and end (exclusive) indexes to dna of the match, aligned to codon
+  boundaries."
+  [dna vs-dna min-score]
+  (let [amat (ali/alignments dna vs-dna alignment-options)
         matches (ali/distinct-local-matches amat min-score)
         nnn dna/codon-length]
     (->> matches
@@ -154,7 +172,7 @@
                    :score score}))))))
 
 (s/fdef binding-sites
-        :args (s/cat :open-dna ::dna
+        :args (s/cat :dna ::dna
                      :vs-dna ::dna
                      :min-score pos-int?)
         :ret (s/coll-of ::bind))
@@ -166,12 +184,12 @@
   or :products, i indicates which stimulus or product, and j is the
   index into its dna-like sequence. Ordered by score decreasing, and
   then by DNA offset."
-  [open-dna products stimuli min-score]
+  [dna products stimuli min-score]
   (->>
    (concat (map vector (repeat :products) (range) products)
            (map vector (repeat :stimuli) (range) stimuli))
    (reduce (fn [out [kind kind-i vs-dna]]
-             (->> (binding-sites open-dna vs-dna min-score)
+             (->> (binding-sites dna vs-dna min-score)
                   (map (fn [m]
                          (assoc m :path [kind kind-i (:vs-end-base m)])))
                   (into out)))
@@ -179,7 +197,7 @@
    (sort-by (juxt (comp - :score) :bind-end-x :vs-end-base))))
 
 (s/fdef all-binding-sites
-        :args (s/cat :open-dna ::dna
+        :args (s/cat :dna ::dna
                      :products (s/every ::dna)
                      :stimuli (s/every ::dna)
                      :min-score pos-int?)
@@ -198,7 +216,7 @@
   score (transformed). However, it is not stochastic, but simply
   divided proportionally."
   [cell stimuli time-step]
-  (let [odna (open-dna (:dna cell) (:dna-open? cell))
+  (let [odna (get-open-dna cell)
         products (keys (:product-counts cell))
         binds (all-binding-sites odna products stimuli (inc baseline-score))
         cum (reductions + (map #(binding-site-weight (:score %) baseline-score
@@ -258,38 +276,37 @@
   "Computes a reaction from a single codon of DNA, interpreted into a
   symbolic op code. The offset argument here is an index into DNA
   _after_ the current op codon."
-  [op cell open-dna offset cell-id phy]
-  (reaction-op* op cell open-dna offset phy))
+  [op cell offset cell-id phy]
+  (reaction-op* op cell offset phy))
 
 (s/fdef reaction-op
         :args (s/cat :op ::dna/op-code
                      :cell ::cell
-                     :open-dna ::dna
                      :offset ::offset
                      :phy ::phys/physics)
         :ret ::reaction-step)
 
 (defmethod reaction-op* :no-op
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   {})
 
 (defmethod reaction-op* :terminator
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   {})
 
 (defmethod reaction-op* :silence-terminator
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   {})
 
 (defmethod reaction-op* 'stop-reaction
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   {:next-offset :stop-reaction})
 
 (defn read-template
-  ([open-dna offset]
-   (read-template open-dna offset #{:terminator 'stop-reaction}))
-  ([open-dna offset terminator?]
-   (loop [dna (drop offset open-dna)
+  ([dna offset]
+   (read-template dna offset #{:terminator 'stop-reaction}))
+  ([dna offset terminator?]
+   (loop [dna (drop offset dna)
           tem []]
      (if (seq dna)
        (let [codon (vec (take dna/codon-length dna))
@@ -302,8 +319,9 @@
        tem))))
 
 (defmethod reaction-op* 'product
-  [op cell open-dna offset cell-id phy]
-  (let [cost 1
+  [op cell offset cell-id phy]
+  (let [open-dna (get-open-dna cell)
+        cost 1
         energy (:energy cell)]
     (if (>= energy cost)
       (let [tem (read-template open-dna offset)
@@ -318,25 +336,39 @@
       {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'silence
-  [op cell open-dna offset cell-id phy]
-  (let [dna (:dna cell)
-        ;; NOTE dna not open-dna
-        tem (read-template dna offset #(= % :silence-terminator))
+  [op cell offset cell-id phy]
+  (let [open-dna (get-open-dna cell)
+        tem (read-template open-dna offset)
         terminator dna/codon-length]
     (if (>= (count tem) min-template-bases)
-      ;; TODO
-      {
-       :next-offset (+ offset (count tem) terminator)}
+      ;; find best matching site
+      (let [dna (:dna cell)
+            ;; NOTE: use dna not open-dna because that is idempotent,
+            ;; i.e. stably repeatable after silencing has taken effect
+            matches (binding-sites dna tem baseline-score)]
+        (if (seq matches)
+          (let [match (apply max-key :score matches)
+                ;; NOTE matched template is silenced too:
+                silence-start (:bind-start match)
+                target-dna (read-template dna silence-start
+                                          #(= % :silence-terminator))
+                ]
+            ;; TODO adjust offset for altered open-dna
+            ;;      - find current offset in dna
+            {:cell-immediate (:bind-end-x match)})
+          ;; no match
+          {:next-offset (+ offset (count tem) terminator)}))
       ;; template too short
       {:next-offset (+ offset (count tem) terminator)})))
 
 (defmethod reaction-op* 'unsilence
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   {})
 
 (defmethod reaction-op* 'goto
-  [op cell open-dna offset cell-id phy]
-  (let [tem (read-template open-dna offset)
+  [op cell offset cell-id phy]
+  (let [open-dna (get-open-dna cell)
+        tem (read-template open-dna offset)
         terminator dna/codon-length]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
@@ -350,36 +382,37 @@
       {:next-offset (+ offset (count tem) terminator)})))
 
 (defmethod reaction-op* 'energy-test
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [e-threshold (* max-energy (/ offset (count open-dna)))]
     (if (> (:energy cell) e-threshold)
-      (reaction-op 'goto cell open-dna offset cell-id phy)
+      (reaction-op 'goto cell offset cell-id phy)
       ;; test failed, skip goto
-      (let [tem (read-template open-dna offset)
+      (let [open-dna (get-open-dna cell)
+            tem (read-template open-dna offset)
             terminator dna/codon-length]
         {:next-offset (+ offset (count tem) terminator)}))))
 
 (defmethod reaction-op* 'to-sun
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   {:cell-immediate {:orientation (/ Math/PI 2)}})
 
 (defmethod reaction-op* 'about-face
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [angle (:orientation cell)]
     {:cell-immediate {:orientation (in-pi-pi (+ angle Math/PI))}}))
 
 (defmethod reaction-op* 'rot-left
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [angle (:orientation cell)]
     {:cell-immediate {:orientation (in-pi-pi (+ angle (/ Math/PI 8)))}}))
 
 (defmethod reaction-op* 'rot-right
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [angle (:orientation cell)]
     {:cell-immediate {:orientation (in-pi-pi (- angle (/ Math/PI 8)))}}))
 
 (defmethod reaction-op* 'push
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [cost 2
         energy (:energy cell)]
     (if (>= energy cost)
@@ -389,7 +422,7 @@
       {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'sugar-start
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [dir (:orientation cell)]
     (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
       {:delayed {:sugar-start {:target targ-id}}}
@@ -397,7 +430,7 @@
       {})))
 
 (defmethod reaction-op* 'sugar-stop
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [dir (:orientation cell)]
     (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
       {:delayed {:sugar-stop {:target targ-id}}}
@@ -405,7 +438,7 @@
       {})))
 
 (defmethod reaction-op* 'bond-form
-  [op cell open-dna offset cell-id cell-id phy]
+  [op cell offset cell-id cell-id phy]
   (let [cost 1
         energy (:energy cell)
         dir (:orientation cell)]
@@ -419,7 +452,7 @@
       {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'bond-break
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [dir (:orientation cell)]
     (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
       {:delayed {:bond-break {:target targ-id}}}
@@ -427,11 +460,11 @@
       {})))
 
 (defmethod reaction-op* 'clone
-  [op cell open-dna offset cell-id phy]
+  [op cell offset cell-id phy]
   (let [cost 4
         energy (:energy cell)]
     (if (>= energy cost)
-      (let [prod-re (reaction-op 'product cell open-dna offset cell-id phy)
+      (let [prod-re (reaction-op 'product cell offset cell-id phy)
             prod (or (get-in prod-re [:delayed :product :dna])
                      (dna/fixed-stimuli :birth-default))]
         {:delayed {:clone {:in-direction (:orientation cell)
@@ -442,8 +475,8 @@
       {:next-offset :stop-reaction})))
 
 (defmethod reaction-op* 'sex
-  [op cell open-dna offset cell-id phy]
-  (let [re (reaction-op 'clone cell open-dna offset cell-id phy)
+  [op cell offset cell-id phy]
+  (let [re (reaction-op 'clone cell offset cell-id phy)
         dir (:orientation cell)]
     (if-let [clone (get-in re [:delayed :clone])]
       (if-let [targ-id (phys/part-in-direction phy cell-id dir)]
@@ -463,7 +496,7 @@
   * a reaction step returns a stop instruction (e.g. stop-reaction codon);
   * we reach the end of the DNA;
   * the instruction counter reaches a limit."
-  [cell open-dna bind-offset cell-id phy]
+  [cell bind-offset cell-id phy]
   (loop [offset bind-offset
          counter 0
          stop? false
@@ -482,7 +515,7 @@
             _ (assert (= dna/codon-length (count codon)))
             op (dna/codon->op codon)
             next-off* (+ offset dna/codon-length)
-            re (reaction-op op (:cell ret) open-dna next-off* cell-id phy)
+            re (reaction-op op (:cell ret) next-off* cell-id phy)
             next-off (or (:next-offset re) next-off*)
             ]
         (recur next-off
@@ -503,7 +536,6 @@
 
 (s/fdef react-at-site
         :args (s/cat :cell ::cell
-                     :open-dna ::dna
                      :bind-offset ::offset
                      :phy ::phys/physics)
         :ret ::reaction)
