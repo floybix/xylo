@@ -6,7 +6,9 @@
 (def bases
   (seq "acgt"))
 
-(s/def ::base (set bases))
+(def base? (set bases))
+
+(s/def ::base base?)
 
 (def codon-length 3)
 

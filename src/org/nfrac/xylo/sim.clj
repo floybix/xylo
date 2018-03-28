@@ -5,45 +5,8 @@
             [org.nfrac.xylo.dna :as dna]
             [clojure.spec.alpha :as s]))
 
-(defn test-physics-grid
-  []
-  (let [w (phys-g/init 16 12)
-        [id1 w] (phys/create-part w [1.0 0.5])
-        [id2 w] (phys/create-part w [5.0 1.0])
-        [id3 w] (phys/create-part w [5.0 2.0])
-        [id4 w] (phys/create-part w [5.5 2.0])
-        w (phys/bond-form w id3 id4)]
-    (println "initial world")
-    (println (sort (:parts w)))
-    (let [ws (iterate #(phys/step % 0.5) w)]
-      (println "step 0.5")
-      (println (sort (:parts (nth ws 1))))
-      (println "step 0.5")
-      (println (sort (:parts (nth ws 2))))
-      (println "step 0.5")
-      (println (sort (:parts (nth ws 3))))
-      (= (set (vals (:parts (nth ws 3))))
-         #{[1.0 0.5] [5.0 0.5] [5.0 1.0] [5.5 1.0]}))))
-
-(defn test-seed-cell
-  [time-step]
-  (let [cell (-> (cell/seed-dna) (cell/new-cell) (assoc :energy 4))
-        dna (:dna cell)
-        odna (cell/get-open-dna cell)
-        cdna (apply str (map dna/complement dna))
-        stim [(dna/fixed-stimuli :ground) cdna]
-        binds (cell/all-binding-sites odna [] stim (inc cell/baseline-score))
-        bind (cell/select-binding-site cell stim time-step)]
-    (doseq [b binds] (println b))
-    (println "selected:")
-    (println bind)
-    (let [ans (cell/react-at-site cell (:bind-end-x bind) 1 (phys-g/init 10 10))]
-      (:reaction-log ans))
-    ))
-
-
 (s/def ::cell-pop
-  (s/map-of ::phys/cell-id ::cell/cell))
+  (s/map-of ::phys/part-id ::cell/cell))
 
 (s/def ::sugar-from-to
   (s/every-kv ::phys/part-id (s/every ::phys/part-id, :kind set?)))
@@ -101,7 +64,7 @@
       (let [[kind kind-i _] (:path bind)
             cell (cond-> cell
                    (= kind :stimuli)
-                   (assoc cell :orientation (:orientation (nth stim kind-i))))
+                   (assoc :orientation (:orientation (nth stim kind-i))))
             ret (cell/react-at-site cell (:bind-end-x bind) cell-id phy)]
         (if (= kind :products)
           (let [[product n] (-> cell :product-count (nth kind-i))]
@@ -307,6 +270,10 @@
       (death-step)
       (reaction-step time-step)))
 
+(s/fdef world-step
+        :args (s/cat :world ::world :time-step nat-int?)
+        :ret ::world)
+
 (defn new-world
   [width height]
   (let [phy (phys-g/init width height)
@@ -315,6 +282,11 @@
     {:physics phy
      :cell-pop {cell-id cell}
      :sugar-from-to {}}))
+
+(s/fdef new-world
+        :args (s/cat :width pos?
+                     :height pos?)
+        :ret ::world)
 
 ;; cache match score per location
 

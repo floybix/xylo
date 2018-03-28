@@ -23,23 +23,22 @@
 (defn in-pi-pi
   "Returns the angle expressed in the range -pi to pi."
   [angle]
-  (float
-   (cond
-     (> angle PI) (in-pi-pi (- angle TWOPI))
-     (< angle (- PI)) (in-pi-pi (+ angle TWOPI))
-     :else angle)))
+  (cond
+    (> angle PI) (in-pi-pi (- angle TWOPI))
+    (< angle (- PI)) (in-pi-pi (+ angle TWOPI))
+    :else angle))
 
 (defn polar-xy
   "Convert polar coordinates (magnitude, angle) to cartesian
    coordinates (x, y)."
   [mag angle]
-  [(float (* mag (Math/cos angle)))
-   (float (* mag (Math/sin angle)))])
+  [(* mag (Math/cos angle))
+   (* mag (Math/sin angle))])
 
 (defn v-angle
   "Angle of a 2d geometric vector in radians in range -pi to pi."
   [[x y]]
-  (float (Math/atan2 y x)))
+  (Math/atan2 y x))
 
 (defn- abs [x] (if (neg? x) (- x) x))
 
@@ -147,6 +146,7 @@
   (part-in-direction
    [this part-id angle]
    (let [[x y] (get parts part-id)
+         _ (assert x (str "Part ID not found " part-id))
          [dx dy] (polar-xy 0.5 angle)
          [ax ay] [(+ x dx) (+ y dy)]]
      (->> (dissoc parts part-id)
@@ -182,3 +182,8 @@
     :height height
     :parts {}
     :bonds {}}))
+
+(s/fdef init
+        :args (s/cat :width pos?
+                     :height pos?)
+        :ret ::phys/physics)

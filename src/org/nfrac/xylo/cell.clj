@@ -24,9 +24,9 @@
 (defn codon-boundary? [n] (zero? (mod n dna/codon-length)))
 
 (s/def ::dna
-  (s/and
-   (s/every ::dna/base, :min-count dna/codon-length)
-   #(codon-boundary? (count %))))
+  (s/and string?
+         #(every? dna/base? %)
+         #(codon-boundary? (count %))))
 
 (s/def ::dna-open?
   (s/every boolean?, :min-count 1, :kind vector?))
@@ -36,8 +36,8 @@
 
 (s/def ::energy nat-int?)
 
-(s/def ::orientation (s/double-in :min (- Math/PI)
-                                  :max (+ Math/PI) :NaN? false))
+(s/def ::orientation (s/double-in :min (- -0.01 Math/PI)
+                                  :max (+ 0.01 Math/PI) :NaN? false))
 
 (s/def ::starvation nat-int?)
 
@@ -198,8 +198,8 @@
 
 (s/fdef all-binding-sites
         :args (s/cat :dna ::dna
-                     :products (s/every ::dna)
-                     :stimuli (s/every ::dna)
+                     :products (s/nilable (s/every ::dna))
+                     :stimuli (s/nilable (s/every ::dna))
                      :min-score pos-int?)
         :ret (s/coll-of ::bind-with-path))
 
@@ -230,7 +230,7 @@
 
 (s/fdef select-binding-site
         :args (s/cat :cell ::cell
-                     :stimuli (s/every ::dna)
+                     :stimuli (s/nilable (s/every ::dna))
                      :time-step nat-int?)
         :ret (s/nilable ::bind-with-path))
 
@@ -269,7 +269,7 @@
                    ::delayed]))
 
 (defmulti reaction-op*
-  (fn [op cell open-dna offset cell-id phy]
+  (fn [op cell offset cell-id phy]
     op))
 
 (defn reaction-op
@@ -277,12 +277,13 @@
   symbolic op code. The offset argument here is an index into DNA
   _after_ the current op codon."
   [op cell offset cell-id phy]
-  (reaction-op* op cell offset phy))
+  (reaction-op* op cell offset cell-id phy))
 
 (s/fdef reaction-op
         :args (s/cat :op ::dna/op-code
                      :cell ::cell
                      :offset ::offset
+                     :cell-id ::phys/part-id
                      :phy ::phys/physics)
         :ret ::reaction-step)
 
@@ -453,7 +454,8 @@
 
 (defmethod reaction-op* 'energy-test
   [op cell offset cell-id phy]
-  (let [e-threshold (* max-energy (/ offset (count open-dna)))]
+  (let [open-dna (get-open-dna cell)
+        e-threshold (* max-energy (/ offset (count open-dna)))]
     (if (> (:energy cell) e-threshold)
       (reaction-op 'goto cell offset cell-id phy)
       ;; test failed, skip goto
@@ -508,7 +510,7 @@
       {})))
 
 (defmethod reaction-op* 'bond-form
-  [op cell offset cell-id cell-id phy]
+  [op cell offset cell-id phy]
   (let [cost 1
         energy (:energy cell)
         dir (:orientation cell)]
@@ -567,34 +569,35 @@
   * we reach the end of the DNA;
   * the instruction counter reaches a limit."
   [cell bind-offset cell-id phy]
-  (loop [offset bind-offset
-         counter 0
-         stop? false
-         ret {:cell cell
-              :effects []
-              :reaction-log []}]
-    (cond
-      stop?
-      ret
-      (> counter max-ops)
-      ret
-      (>= offset (count open-dna))
-      ret
-      :else
-      (let [codon (vec (take dna/codon-length (drop offset open-dna)))
-            _ (assert (= dna/codon-length (count codon)))
-            op (dna/codon->op codon)
-            next-off* (+ offset dna/codon-length)
-            re (reaction-op op (:cell ret) next-off* cell-id phy)
-            next-off (or (:next-offset re) next-off*)
-            ]
-        (recur next-off
-               (inc counter)
-               (= next-off :stop-reaction)
-               (-> ret
-                   (update :cell merge (:cell-immediate re))
-                   (update :effects conj (:delayed re))
-                   (update :reaction-log conj [op offset re])))))))
+  (let [open-dna (get-open-dna cell)]
+    (loop [offset bind-offset
+           counter 0
+           stop? false
+           ret {:cell cell
+                :effects []
+                :reaction-log []}]
+      (cond
+        stop?
+        ret
+        (> counter max-ops)
+        ret
+        (>= offset (count open-dna))
+        ret
+        :else
+        (let [codon (vec (take dna/codon-length (drop offset open-dna)))
+              _ (assert (= dna/codon-length (count codon)))
+              op (dna/codon->op codon)
+              next-off* (+ offset dna/codon-length)
+              re (reaction-op op (:cell ret) next-off* cell-id phy)
+              next-off (or (:next-offset re) next-off*)
+              ]
+          (recur next-off
+                 (inc counter)
+                 (= next-off :stop-reaction)
+                 (-> ret
+                     (update :cell merge (:cell-immediate re))
+                     (update :effects conj (:delayed re))
+                     (update :reaction-log conj [op offset re]))))))))
 
 (s/def ::effects (s/every (s/nilable ::delayed)))
 
@@ -607,5 +610,6 @@
 (s/fdef react-at-site
         :args (s/cat :cell ::cell
                      :bind-offset ::offset
+                     :cell-id ::phys/part-id
                      :phy ::phys/physics)
         :ret ::reaction)
