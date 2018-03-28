@@ -335,35 +335,105 @@
       ;; not enough energy
       {:next-offset :stop-reaction})))
 
+(defn offset-into-full-dna
+  [offset-into-open-dna dna-open?]
+  (->> dna-open?
+       (map #(if % 1 0))
+       (reductions + 0)
+       (take-while #(<= % offset-into-open-dna))
+       (count)
+       (dec)))
+
+(defn offset-into-open-dna
+  "Truncates to most recent open base (towards start of dna). Returns -1
+  if the offset is before any open dna."
+  [offset-into-full-dna dna-open?]
+  (->> (take (inc offset-into-full-dna) dna-open?)
+       (filter true?)
+       (count)
+       (dec)))
+
+(defn set-vector-range
+  [v from to x]
+  (loop [i from
+         v (transient v)]
+    (if (< i to)
+      (recur (inc i) (assoc! v i x))
+      (persistent! v))))
+
+(defn silence-target
+  [dna dna-open? tem]
+  ;; NOTE: use dna not open-dna because that is idempotent,
+  ;; i.e. stably repeatable after silencing has taken effect
+  (let [matches (binding-sites dna tem baseline-score)
+        terminator dna/codon-length]
+    (if (seq matches)
+      (let [match (apply max-key :score matches)
+            ;; NOTE matched template is silenced too:
+            silence-start (:bind-start match)
+            target-dna (read-template dna silence-start
+                                      #(= % :silence-terminator))
+            silence-end (+ silence-start (count target-dna) terminator)]
+        (if (seq target-dna)
+          {:start silence-start
+           :end silence-end}
+          ;; empty target
+          nil))
+      ;; no match
+      nil)))
+
+(s/fdef silence-target
+        :args (s/cat :dna ::dna
+                     :dna-open ::dna-open?
+                     :tem ::dna)
+        :ret (s/nilable (s/keys)))
+
 (defmethod reaction-op* 'silence
   [op cell offset cell-id phy]
   (let [open-dna (get-open-dna cell)
         tem (read-template open-dna offset)
-        terminator dna/codon-length]
+        terminator dna/codon-length
+        next-offset (+ offset (count tem) terminator)]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
       (let [dna (:dna cell)
-            ;; NOTE: use dna not open-dna because that is idempotent,
-            ;; i.e. stably repeatable after silencing has taken effect
-            matches (binding-sites dna tem baseline-score)]
-        (if (seq matches)
-          (let [match (apply max-key :score matches)
-                ;; NOTE matched template is silenced too:
-                silence-start (:bind-start match)
-                target-dna (read-template dna silence-start
-                                          #(= % :silence-terminator))
-                ]
-            ;; TODO adjust offset for altered open-dna
-            ;;      - find current offset in dna
-            {:cell-immediate (:bind-end-x match)})
-          ;; no match
-          {:next-offset (+ offset (count tem) terminator)}))
+            dna-open (:dna-open? cell)]
+        (if-let [{:keys [start end]} (silence-target dna dna-open tem)]
+          (let [new-dna-open (set-vector-range dna-open start end false)
+                next-offset-full (offset-into-full-dna next-offset dna-open)
+                next-offset-adj (offset-into-open-dna next-offset-full new-dna-open)]
+            {:cell-immediate
+             {:dna-open? new-dna-open
+              :next-offset (if (<= start next-offset-full end)
+                             :stop-reaction ;; read head was silenced
+                             next-offset-adj)}
+             })
+          ;; no match/target
+          {:next-offset next-offset}))
       ;; template too short
-      {:next-offset (+ offset (count tem) terminator)})))
+      {:next-offset next-offset})))
 
 (defmethod reaction-op* 'unsilence
   [op cell offset cell-id phy]
-  {})
+  (let [open-dna (get-open-dna cell)
+        tem (read-template open-dna offset)
+        terminator dna/codon-length
+        next-offset (+ offset (count tem) terminator)]
+    (if (>= (count tem) min-template-bases)
+      ;; find best matching site
+      (let [dna (:dna cell)
+            dna-open (:dna-open? cell)]
+        (if-let [{:keys [start end]} (silence-target dna dna-open tem)]
+          (let [new-dna-open (set-vector-range dna-open start end true)
+                next-offset-full (offset-into-full-dna next-offset dna-open)
+                next-offset-adj (offset-into-open-dna next-offset-full new-dna-open)]
+            {:cell-immediate
+             {:dna-open? new-dna-open
+              :next-offset next-offset-adj}})
+          ;; no match/target
+          {:next-offset next-offset}))
+      ;; template too short
+      {:next-offset next-offset})))
 
 (defmethod reaction-op* 'goto
   [op cell offset cell-id phy]
