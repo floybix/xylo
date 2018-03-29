@@ -21,18 +21,8 @@
 (def sugar-energy 1)
 (def starvation-steps 8)
 
-(defn codon-boundary? [n] (zero? (mod n dna/codon-length)))
-
-(s/def ::dna
-  (s/and string?
-         #(every? dna/base? %)
-         #(codon-boundary? (count %))))
-
-(s/def ::dna-open?
-  (s/every boolean?, :min-count 1, :kind vector?))
-
 (s/def ::product-counts
-  (s/map-of ::dna pos-int?))
+  (s/map-of ::dna/dna pos-int?))
 
 (s/def ::energy nat-int?)
 
@@ -42,8 +32,8 @@
 (s/def ::starvation nat-int?)
 
 (s/def ::cell
-  (s/keys :req-un [::dna
-                   ::dna-open?
+  (s/keys :req-un [::dna/dna
+                   ::dna/dna-open?
                    ::product-counts
                    ::orientation
                    ::energy
@@ -62,7 +52,7 @@
                {::open-dna-cache (atom nil)})))
 
 (s/fdef new-cell
-        :args (s/cat :dna ::dna)
+        :args (s/cat :dna ::dna/dna)
         :ret ::cell)
 
 (defn seed-dna
@@ -95,29 +85,6 @@
            )
    (apply str)))
 
-(defn vector-subset
-  [xs ?s]
-  (loop [xs xs
-         ?s ?s
-         out (transient [])]
-    (if-let [x (first xs)]
-      (recur (rest xs)
-             (rest ?s)
-             (if (first ?s)
-               (conj! out x)
-               out))
-      ;; done
-      (persistent! out))))
-
-(defn open-dna
-  "Cuts out any silenced parts of the DNA."
-  [dna dna-open?]
-  (apply str (vector-subset dna dna-open?)))
-
-(s/fdef open-dna
-        :args (s/cat :dna ::dna :dna-open? ::dna-open?)
-        :ret ::dna)
-
 (defn get-open-dna
   [cell]
   (let [od-cache (::open-dna-cache (meta cell))
@@ -127,14 +94,14 @@
     (if (= hash-key (:hash-key @od-cache))
       (:val @od-cache)
       (:val (reset! od-cache {:hash-key hash-key
-                              :val (open-dna dna dna-open?)})))))
+                              :val (dna/open-dna dna dna-open?)})))))
 
 (s/fdef get-open-dna
         :args (s/cat :cell ::cell)
-        :ret ::dna)
+        :ret ::dna/dna)
 
-(s/def ::bind-begin (s/and nat-int? codon-boundary?))
-(s/def ::bind-end-x (s/and nat-int? codon-boundary?))
+(s/def ::bind-begin (s/and nat-int? dna/codon-boundary?))
+(s/def ::bind-end-x (s/and nat-int? dna/codon-boundary?))
 (s/def ::score (s/double-in :min 0 :NaN? false))
 
 (s/def ::bind
@@ -172,8 +139,8 @@
                    :score score}))))))
 
 (s/fdef binding-sites
-        :args (s/cat :dna ::dna
-                     :vs-dna ::dna
+        :args (s/cat :dna ::dna/dna
+                     :vs-dna ::dna/dna
                      :min-score pos-int?)
         :ret (s/coll-of ::bind))
 
@@ -197,9 +164,9 @@
    (sort-by (juxt (comp - :score) :bind-end-x :vs-end-base))))
 
 (s/fdef all-binding-sites
-        :args (s/cat :dna ::dna
-                     :products (s/nilable (s/every ::dna))
-                     :stimuli (s/nilable (s/every ::dna))
+        :args (s/cat :dna ::dna/dna
+                     :products (s/nilable (s/every ::dna/dna))
+                     :stimuli (s/nilable (s/every ::dna/dna))
                      :min-score pos-int?)
         :ret (s/coll-of ::bind-with-path))
 
@@ -230,11 +197,11 @@
 
 (s/fdef select-binding-site
         :args (s/cat :cell ::cell
-                     :stimuli (s/nilable (s/every ::dna))
+                     :stimuli (s/nilable (s/every ::dna/dna))
                      :time-step nat-int?)
         :ret (s/nilable ::bind-with-path))
 
-(s/def ::offset (s/and nat-int? codon-boundary?))
+(s/def ::offset (s/and nat-int? dna/codon-boundary?))
 
 (s/def ::next-offset (s/or :i ::offset
                            :kw #{:stop-reaction}))
@@ -246,7 +213,7 @@
 (s/def ::in-direction ::orientation)
 (s/def ::init-offset ::offset)
 
-(s/def ::product ::dna)
+(s/def ::product ::dna/dna)
 (s/def ::clone (s/keys :req-un [::in-direction ::init-offset]))
 (s/def ::bond-form (s/keys :req-un [::in-direction]))
 (s/def ::bond-break (s/keys :req-un [::in-direction]))
@@ -336,24 +303,6 @@
       ;; not enough energy
       {:next-offset :stop-reaction})))
 
-(defn offset-into-full-dna
-  [offset-into-open-dna dna-open?]
-  (->> dna-open?
-       (map #(if % 1 0))
-       (reductions + 0)
-       (take-while #(<= % offset-into-open-dna))
-       (count)
-       (dec)))
-
-(defn offset-into-open-dna
-  "Truncates to most recent open base (towards start of dna). Returns -1
-  if the offset is before any open dna."
-  [offset-into-full-dna dna-open?]
-  (->> (take (inc offset-into-full-dna) dna-open?)
-       (filter true?)
-       (count)
-       (dec)))
-
 (defn set-vector-range
   [v from to x]
   (loop [i from
@@ -384,9 +333,9 @@
       nil)))
 
 (s/fdef silence-target
-        :args (s/cat :dna ::dna
+        :args (s/cat :dna ::dna/dna
                      :dna-open ::dna-open?
-                     :tem ::dna)
+                     :tem ::dna/dna)
         :ret (s/nilable (s/keys)))
 
 (defmethod reaction-op* 'silence
@@ -401,8 +350,8 @@
             dna-open (:dna-open? cell)]
         (if-let [{:keys [start end]} (silence-target dna dna-open tem)]
           (let [new-dna-open (set-vector-range dna-open start end false)
-                next-offset-full (offset-into-full-dna next-offset dna-open)
-                next-offset-adj (offset-into-open-dna next-offset-full new-dna-open)]
+                next-offset-full (dna/offset-into-full-dna next-offset dna-open)
+                next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
             {:cell-immediate
              {:dna-open? new-dna-open
               :next-offset (if (<= start next-offset-full end)
@@ -426,8 +375,8 @@
             dna-open (:dna-open? cell)]
         (if-let [{:keys [start end]} (silence-target dna dna-open tem)]
           (let [new-dna-open (set-vector-range dna-open start end true)
-                next-offset-full (offset-into-full-dna next-offset dna-open)
-                next-offset-adj (offset-into-open-dna next-offset-full new-dna-open)]
+                next-offset-full (dna/offset-into-full-dna next-offset dna-open)
+                next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
             {:cell-immediate
              {:dna-open? new-dna-open
               :next-offset next-offset-adj}})

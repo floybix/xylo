@@ -3,6 +3,7 @@
             [org.nfrac.xylo.physics-grid :as phys-g]
             [org.nfrac.xylo.cell :as cell]
             [org.nfrac.xylo.dna :as dna]
+            [clojure.test.check.random :as random]
             [clojure.spec.alpha :as s]))
 
 (s/def ::cell-pop
@@ -14,7 +15,8 @@
 (s/def ::world
   (s/keys :req-un [::phys/physics
                    ::cell-pop
-                   ::sugar-from-to]))
+                   ::sugar-from-to
+                   ::dna/rng]))
 
 (defn find-stimuli
   [world cell-id touch-ids]
@@ -41,7 +43,7 @@
                  touch-ids)))))
 
 (s/def ::stimulus
-  (s/keys :req-un [::cell/dna
+  (s/keys :req-un [::dna/dna
                    ::cell/orientation]))
 
 (s/fdef find-stimuli
@@ -99,15 +101,15 @@
             new-pos [(+ x dx) (+ y dy)]
             child-product (:child-product fx-args)
             [new-id phy] (phys/create-part phy new-pos)
-            dna (:dna cell)
-            new-dna dna ;; TODO mutation
-            new-dna-open? (:dna-open? cell)
+            [rng rng*] (random/split (:rng world))
+            [new-dna new-dna-open] (dna/mutate (:dna cell) (:dna-open? cell) rng*)
             new-cell (-> (cell/new-cell new-dna)
-                         (assoc :dna-open? new-dna-open?)
+                         (assoc :dna-open? new-dna-open)
                          (assoc :orientation (:orientation cell))
                          (assoc-in [:product-counts child-product] 1))]
         (-> world
             (assoc :physics phy)
+            (assoc :rng rng)
             (update :cell-pop assoc new-id new-cell)))
 
       :sex
@@ -121,13 +123,14 @@
             sex-cell (get cell-pop sex-id)
             dna (:dna cell)
             sex-dna (:dna sex-cell)
-            ;;TODO
-            new-dna dna
+            [rng rng*] (random/split (:rng world))
+            new-dna (dna/crossover dna sex-dna rng*)
             new-cell (-> (cell/new-cell new-dna)
                          (assoc :orientation (:orientation cell))
                          (assoc-in [:product-counts child-product] 1))]
         (-> world
             (assoc :physics phy)
+            (assoc :rng rng)
             (update :cell-pop assoc new-id new-cell)))
 
       :bond-form
@@ -275,17 +278,20 @@
         :ret ::world)
 
 (defn new-world
-  [width height]
+  [width height seed]
   (let [phy (phys-g/init width height)
         cell (cell/new-cell (cell/seed-dna))
-        [cell-id phy] (phys/create-part phy [(quot width 2) 0])]
+        [cell-id phy] (phys/create-part phy [(quot width 2) 0])
+        rng (random/make-random seed)]
     {:physics phy
      :cell-pop {cell-id cell}
-     :sugar-from-to {}}))
+     :sugar-from-to {}
+     :rng rng}))
 
 (s/fdef new-world
         :args (s/cat :width pos?
-                     :height pos?)
+                     :height pos?
+                     :seed int?)
         :ret ::world)
 
 ;; cache match score per location

@@ -12,7 +12,12 @@ hand-craft genomes to test each operation.
 
 use a simple testing physics/world.
 
+
 ## design
+
+better for each stimulus to only bind to the single best match -- predictable masking.
+
+adjust match indexes by 1 (possible match to start of sequence)
 
 internal dynamics (GRN) should have negatives -- repressors -- as well as positive TFs
 
