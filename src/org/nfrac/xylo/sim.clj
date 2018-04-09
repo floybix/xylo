@@ -26,10 +26,12 @@
         [x y] (phys/position phy cell-id)]
     (cond-> []
       (phys/touching-ground? phy cell-id)
-      (conj {:dna (dna/fixed-stimuli :ground)
+      (conj {:ident :ground
+             :dna (dna/fixed-stimuli :ground)
              :orientation (- (/ Math/PI 2))})
       (phys/in-sunlight? phy cell-id)
-      (conj {:dna (dna/fixed-stimuli :sun)
+      (conj {:ident :sun
+             :dna (dna/fixed-stimuli :sun)
              :orientation (/ Math/PI 2)})
       (seq touch-ids)
       (into (map (fn [id]
@@ -38,7 +40,8 @@
                          cdna (apply str (map dna/complement odna))
                          [xi yi] (phys/position phy id)
                          angle (phys-g/v-angle [(- xi x) (- yi y)])]
-                     {:dna cdna
+                     {:ident id
+                      :dna cdna
                       :orientation angle}))
                  touch-ids)))))
 
@@ -67,12 +70,15 @@
             cell (cond-> cell
                    (= kind :stimuli)
                    (assoc :orientation (:orientation (nth stim kind-i))))
-            ret (cell/react-at-site cell (:bind-end-x bind) cell-id phy)]
+            ret (-> (cell/react-at-site cell (:bind-end-x bind) cell-id phy)
+                    (assoc :stimuli stim)
+                    (assoc ::cell/path (:path bind)))]
         (if (= kind :products)
           (let [[product n] (-> cell :product-count (nth kind-i))]
             (if (> n 1)
               (update-in ret [:cell :product-count product] dec)
-              (update-in ret [:cell :product-count] dissoc product))))))))
+              (update-in ret [:cell :product-count] dissoc product)))
+          ret)))))
 
 (s/fdef cell-reaction
         :args (s/cat :world ::world
@@ -246,35 +252,39 @@
         :ret ::world)
 
 (defn reaction-step
-  "Selects a reaction for each cell and applies its effects."
-  [world time-step]
-  (let [touching (::touching-cache world)]
-    (reduce (fn [world cell-id]
-              (if-let [re (cell-reaction world cell-id (touching cell-id) time-step)]
+  "Selects a reaction for each cell, then applies all the reaction effects."
+  [world]
+  (let [touching (::touching-cache world)
+        time-step (inc (:time-step world 0))
+        res (map (fn [cell-id]
+                   [cell-id
+                    (cell-reaction world cell-id (touching cell-id) time-step)])
+                 (keys (:cell-pop world)))]
+    (reduce (fn [world [cell-id re]]
+              (if re
                 (reduce (fn [w effect]
                           (apply-reaction-effect w cell-id effect))
                         (assoc-in world [:cell-pop cell-id] (:cell re))
                         (remove nil? (:effects re)))
                 world))
-            world
-            (sort (keys (:cell-pop world))))))
+            (assoc world :time-step time-step)
+            res)))
 
 (s/fdef reaction-step
-        :args (s/cat :world ::world
-                     :time-step nat-int?)
+        :args (s/cat :world ::world)
         :ret ::world)
 
 (defn world-step
-  [world time-step]
+  [world]
   (-> world
       (init-step)
       (sun-step)
       (sugar-step)
       (death-step)
-      (reaction-step time-step)))
+      (reaction-step)))
 
 (s/fdef world-step
-        :args (s/cat :world ::world :time-step nat-int?)
+        :args (s/cat :world ::world)
         :ret ::world)
 
 (defn new-world
