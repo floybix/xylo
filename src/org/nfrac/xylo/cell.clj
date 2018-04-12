@@ -124,18 +124,19 @@
   [dna vs-dna min-score]
   (let [amat (ali/alignments dna vs-dna alignment-options)
         matches (ali/distinct-local-matches amat min-score)
-        nnn dna/codon-length]
+        nnn dna/codon-length
+        ok #(max 0 (dec %))]
     (->> matches
          (map (fn [locs]
                 (let [loc (last locs)
                       score (:score (get amat loc))
                       begin-loc (first locs)]
-                  {:bind-end-base (first loc)
-                   :bind-begin-base (first begin-loc)
-                   :vs-end-base (second loc)
-                   :vs-begin-base (second begin-loc)
-                   :bind-begin (let [x (first begin-loc)] (- x (mod x nnn)))
-                   :bind-end-x (let [x (first loc)] (+ nnn (- x (mod x nnn))))
+                  {:bind-end-base (ok (first loc))
+                   :bind-begin-base (ok (first begin-loc))
+                   :vs-end-base (ok (second loc))
+                   :vs-begin-base (ok (second begin-loc))
+                   :bind-begin (let [x (ok (first begin-loc))] (- x (mod x nnn)))
+                   :bind-end-x (let [x (ok (first loc))] (+ nnn (- x (mod x nnn))))
                    :score score}))))))
 
 (s/fdef binding-sites
