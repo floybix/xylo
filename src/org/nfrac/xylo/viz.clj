@@ -106,65 +106,40 @@
       (cond-> runs
         run-start (conj [run-start i])))))
 
-(defn binds-viz*
-  [dna-data silence-data binds-data align-data [width-px height-px]]
-  {:width width-px
-   :height height-px
-   :padding {:left 20, :right 150, :top 20, :bottom 20}
-   :scales [{:name   "base",
+(defn basic-dna-viz*
+  [dna-data silence-data row-scale-name]
+  {:scales [{:name   "base",
              :type   "linear",
              :range  "width",
-             :domain [0 (count dna-data)]
-             }
+             :domain [0 (count dna-data)]}
             {:name   "codon",
              :type   "linear",
              :range  "width",
-             :domain [0 (float (/ (count dna-data) dna/codon-length))]}
-            {:name   "bind",
-             :type   "band"
-             :range  "height",
-             :domain {:data "binds", :field "name"
-                      :sort {:field "bidx", :order "ascending"}}
-             :padding 0.1}
-            {:name   "bind-by-index",
-             :type   "band"
-             :range  "height",
-             :domain {:data "binds", :field "bidx"
-                      :sort {:field "bidx", :order "ascending"}}
-             :padding 0.1}]
-   :axes   [{:scale "codon"
-             :orient "top"
-             :grid true
-             :ticks false
-             :offset {:scale "bind", :band 1}}
-            {:scale "codon"
-             :orient "top"
-             :grid true
-             :ticks false
-             :labels false}
-            {:scale "bind"
-             :orient "right"}
-            {:scale "bind-by-index"
-             :orient "left"}
-            ]
-   :data   [{:name "dna"
-             :values dna-data}
-            {:name "codon-bars"
-             :values (vec (for [i (range 0 (/ (count dna-data) dna/codon-length))
-                            :when (odd? i)]
-                        {:codon i}))}
-            {:name "silence"
-             :values silence-data}
-            {:name "binds"
-             :values binds-data}
-            {:name "align"
-             :values align-data}]
+             :domain [0 (float (/ (count dna-data) dna/codon-length))]}]
+   :axes [{:scale "codon"
+           :orient "top"
+           :grid true
+           :ticks false
+           :offset {:scale row-scale-name, :band 1}}
+          {:scale "codon"
+           :orient "top"
+           :grid true
+           :ticks false
+           :labels false}]
+   :data [{:name "dna"
+           :values dna-data}
+          {:name "codon-bars"
+           :values (vec (for [i (range 0 (/ (count dna-data) dna/codon-length))
+                              :when (odd? i)]
+                          {:codon i}))}
+          {:name "silence"
+           :values silence-data}]
    :marks [{:type "rect"
             :from {:data "silence"}
             :zindex 1
             :encode
             {:enter
-             {:x           {:scale "base", :field "start"}
+             {:x           {:scale "base", :field "begin"}
               :x2          {:scale "base", :field "end"}
               :y           {:value 0}
               :height      "height"
@@ -176,8 +151,8 @@
             {:enter
              {:x           {:scale "codon", :field "codon"}
               :width       {:scale "codon", :value 1.0}
-              :y           {:scale "bind", :band -1}
-              :height      {:signal "height", :offset {:scale "bind", :band 1}}
+              :y           {:scale row-scale-name, :band -1}
+              :height      {:signal "height", :offset {:scale row-scale-name, :band 1}}
               :fill        {:value "black"}
               :fillOpacity {:value 0.05}}}}
            {:type "text",
@@ -186,51 +161,86 @@
             :encode
             {:enter
              {:x           {:scale "base", :field "at"}
-              :y           {:scale "bind", :band -0.5}
+              :y           {:scale row-scale-name, :band -0.5}
               :text        {:field "base"}
               :font        {:value "monospace"}
-              :fontSize    {:scale "bind", :band 0.4}
+              :fontSize    {:scale row-scale-name, :band 0.4}
               :baseline    {:value "middle"}
-              }}}
-           {:type "rect"
-            :from {:data "binds"}
-            :zindex 2
-            :encode
-            {:enter
-             {:x           {:scale "base", :field "start"}
-              :x2          {:scale "base", :field "end"}
-              :y           {:scale "bind", :field "name"}
-              :height      {:scale "bind", :band 1.0}
-              :fill        {:value "#9999ff"}
-              :fillOpacity {:value 0.5}}}}
-           {:type "text",
-            :from {:data "align"},
-            :zindex 3
-            :encode
-            {:enter
-             {:x           {:scale "base", :field "at"}
-              :y           {:scale "bind-by-index", :field "bidx", :band 0.5}
-              :text        {:field "base"}
-              :font        {:value "monospace"}
-              :fontSize    {:scale "bind", :band 0.4}
-              :baseline    {:value "middle"}
-              }}}
-           ]
-   })
+              }}}]})
+
+(defn basic-dna-viz
+  [dna dna-open? row-scale-name]
+  (let [odna (dna/open-dna dna dna-open?)
+        dna-data (for [[i base] (map vector (range) dna)]
+                   {:at i
+                    :base base})
+        silence-data (for [[begin end] (silenced-runs dna-open?)]
+                       {:begin begin, :end end})]
+    (-> (basic-dna-viz* dna-data silence-data row-scale-name)
+        (with-vega-meta))))
+
+(defn binds-viz*
+  [dna-vega binds-data align-data [width-px height-px]]
+  (merge-with
+   into
+   (assoc dna-vega
+          :width width-px
+          :height height-px
+          :padding {:left 20, :right 150, :top 20, :bottom 20})
+   {:scales [{:name   "bind",
+              :type   "band"
+              :range  "height",
+              :domain {:data "binds", :field "name"
+                       :sort {:field "bidx", :order "ascending"}}
+              :padding 0.1}
+             {:name   "bind-by-index",
+              :type   "band"
+              :range  "height",
+              :domain {:data "binds", :field "bidx"
+                       :sort {:field "bidx", :order "ascending"}}
+              :padding 0.1}]
+    :axes [{:scale "bind"
+            :orient "right"}
+           {:scale "bind-by-index"
+            :orient "left"}]
+    :data [{:name "binds"
+            :values binds-data}
+           {:name "align"
+            :values align-data}]
+    :marks [{:type "rect"
+             :from {:data "binds"}
+             :zindex 2
+             :encode
+             {:enter
+              {:x           {:scale "base", :field "begin"}
+               :x2          {:scale "base", :field "end"}
+               :y           {:scale "bind", :field "name"}
+               :height      {:scale "bind", :band 1.0}
+               :fill        {:value "#9999ff"}
+               :fillOpacity {:value 0.5}}}}
+            {:type "text",
+             :from {:data "align"},
+             :zindex 3
+             :encode
+             {:enter
+              {:x           {:scale "base", :field "at"}
+               :y           {:scale "bind-by-index", :field "bidx", :band 0.5}
+               :text        {:field "base"}
+               :font        {:value "monospace"}
+               :fontSize    {:scale "bind", :band 0.4}
+               :baseline    {:value "middle"}
+               }}}
+            ]}))
 
 (defn binds-viz
   [world cell-id]
   (let [cell (get-in world [:cell-pop cell-id])
+        dna-vega (basic-dna-viz (:dna cell) (:dna-open? cell) "bind")
         touch-ids (phys/touching (:physics world) cell-id)
         stimuli (sim/find-stimuli world cell-id touch-ids)
         dna (:dna cell)
         open? (:dna-open? cell)
         odna (cell/get-open-dna cell)
-        dna-data (for [[i base] (map vector (range) dna)]
-                   {:at i
-                    :base base})
-        silence-data (for [[start end] (silenced-runs open?)]
-                       {:start start, :end end})
         products (keys (:product-counts cell))
         binds (->> (cell/all-binding-sites odna products (map :dna stimuli)
                                            (inc cell/baseline-score))
@@ -250,7 +260,7 @@
                      {:bidx (:bind-index m)
                       :name (:name m)
                       :score (:score m)
-                      :start (dna/offset-into-full-dna (:bind-begin-base m) open?)
+                      :begin (dna/offset-into-full-dna (:bind-begin-base m) open?)
                       :end (dna/offset-into-full-dna (inc (:bind-end-base m)) open?)})
         ok #(max 0 (dec %))
         align-data (for [m binds
@@ -263,8 +273,87 @@
                       :at (dna/offset-into-full-dna (ok i) open?)
                       :base (nth vs-dna (ok vs-i))})
         ]
-    (-> (binds-viz* dna-data silence-data binds-data align-data
+    (-> (binds-viz* dna-vega binds-data align-data
                     [900 (* 50 (count binds))])
+        (with-vega-meta))))
+
+(defn reaction-viz*
+  [dna-vega re-data [width-px height-px]]
+  (merge-with
+   into
+   (assoc dna-vega
+          :width width-px
+          :height height-px
+          :padding {:left 20, :right 20, :top 20, :bottom 20})
+   {:scales [{:name   "re-step",
+              :type   "band"
+              :range  "height",
+              :domain {:data "re", :field "step-name"
+                       :sort {:field "step-index", :order "ascending"}}
+              :padding 0.1}
+             {:name "read-type-cols"
+              :type "ordinal"
+              :domain ["operation" "template" "match" "match-full" "silenced" "unsilenced"]
+              :range {:scheme "set1"}}]
+    :axes [{:scale "re-step"
+            :orient "left"}]
+    :data [{:name "re"
+            :values re-data}]
+    :marks [{:type "rect"
+             :from {:data "re"}
+             :zindex 2
+             :encode
+             {:enter
+              {:x           {:scale "base", :field "begin"}
+               :x2          {:scale "base", :field "end"}
+               :y           {:scale "re-step", :field "step-name"}
+               :height      {:scale "re-step", :band 1.0}
+               :fill        {:scale "read-type-cols" :field "read-type"}
+               :fillOpacity {:value 0.5}
+               :stroke      {:value "black"}}}}
+            ]
+    :legends [{:orient "bottom"
+               :fill "read-type-cols"
+               :encode
+               {:symbols
+                {:enter
+                 {:shape {:value "square"}
+                  :size {:value 400}
+                  :fillOpacity {:value 0.5}
+                  :stroke {:value "black"}
+                  :strokeWidth {:value 1}}}}}]}))
+
+(defn reaction-viz
+  [world cell-id time-step]
+  (let [cell (get-in world [:cell-pop cell-id])
+        dna-vega (basic-dna-viz (:dna cell) (:dna-open? cell) "re-step")
+        dna (:dna cell)
+        open? (:dna-open? cell)
+        touch-ids (phys/touching (:physics world) cell-id)
+        re (sim/cell-reaction world cell-id touch-ids time-step)
+        re-data (for [[step-i [op-code offset re-step]]
+                      (map-indexed vector (:reaction-log re))
+                      :let [no (:next-offset re-step)
+                            next-off (cond (= no :stop-reaction) nil
+                                           (nil? no) (+ offset dna/codon-length)
+                                           :else no)
+                            read-idx (merge {:operation [offset (+ offset dna/codon-length)]}
+                                            (:read-idx re-step))]
+                      [read-type [read-begin read-end]] read-idx]
+                  {:step-index step-i
+                   :step-name (str (name op-code) " " step-i)
+                   :op-code (name op-code)
+                   ;:next-offset next-off
+                   :read-type (name read-type)
+                   :begin (cond-> read-begin
+                            (#{:template :match} read-type)
+                            (dna/offset-into-full-dna open?))
+                   :end (cond-> read-end
+                          (#{:template :match} read-type)
+                          (dna/offset-into-full-dna open?))
+                   })]
+    (-> (reaction-viz* dna-vega re-data
+                       [900 (* 50 (count (:reaction-log re)))])
         (with-vega-meta))))
 
 (comment

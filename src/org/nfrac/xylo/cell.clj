@@ -294,13 +294,16 @@
         energy (:energy cell)]
     (if (>= energy cost)
       (let [tem (read-template open-dna offset)
-            terminator dna/codon-length]
+            terminator dna/codon-length
+            tem-idx [offset (+ offset (count tem))]]
         (if (>= (count tem) min-template-bases)
           {:delayed {:product {:dna (map dna/translate tem)}}
            :next-offset (+ offset (count tem) terminator)
-           :cell-immediate {:energy (- energy cost)}}
+           :cell-immediate {:energy (- energy cost)}
+           :read-idx {:template tem-idx}}
           ;; template too short
-          {:next-offset (+ offset (count tem) terminator)}))
+          {:next-offset (+ offset (count tem) terminator)
+           :read-idx {:template tem-idx}}))
       ;; not enough energy
       {:next-offset :stop-reaction})))
 
@@ -321,13 +324,14 @@
     (if (seq matches)
       (let [match (apply max-key :score matches)
             ;; NOTE matched template is silenced too:
-            silence-start (:bind-start match)
+            silence-start (:bind-begin match)
             target-dna (read-template dna silence-start
                                       #(= % :silence-terminator))
             silence-end (+ silence-start (count target-dna) terminator)]
         (if (seq target-dna)
           {:start silence-start
-           :end silence-end}
+           :end silence-end
+           :match-idx [(:bind-begin-base match) (:bind-end-base match)]}
           ;; empty target
           nil))
       ;; no match
@@ -344,63 +348,78 @@
   (let [open-dna (get-open-dna cell)
         tem (read-template open-dna offset)
         terminator dna/codon-length
+        tem-idx [offset (+ offset (count tem))]
         next-offset (+ offset (count tem) terminator)]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
       (let [dna (:dna cell)
             dna-open (:dna-open? cell)]
-        (if-let [{:keys [start end]} (silence-target dna dna-open tem)]
+        (if-let [{:keys [start end match-idx]} (silence-target dna dna-open tem)]
           (let [new-dna-open (set-vector-range dna-open start end false)
                 next-offset-full (dna/offset-into-full-dna next-offset dna-open)
                 next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
-            {:cell-immediate
-             {:dna-open? new-dna-open
-              :next-offset (if (<= start next-offset-full end)
-                             :stop-reaction ;; read head was silenced
-                             next-offset-adj)}
+            {:cell-immediate {:dna-open? new-dna-open}
+             :next-offset (if (<= start next-offset-full end)
+                              :stop-reaction ;; read head was silenced
+                              next-offset-adj)
+             :read-idx {:template tem-idx
+                        :match-full match-idx
+                        :silenced [start end]}
              })
           ;; no match/target
-          {:next-offset next-offset}))
+          {:next-offset next-offset
+           :read-idx {:template tem-idx}}))
       ;; template too short
-      {:next-offset next-offset})))
+      {:next-offset next-offset
+       :read-idx {:template tem-idx}})))
 
 (defmethod reaction-op* 'unsilence
   [op cell offset cell-id phy]
   (let [open-dna (get-open-dna cell)
         tem (read-template open-dna offset)
         terminator dna/codon-length
+        tem-idx [offset (+ offset (count tem))]
         next-offset (+ offset (count tem) terminator)]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
       (let [dna (:dna cell)
             dna-open (:dna-open? cell)]
-        (if-let [{:keys [start end]} (silence-target dna dna-open tem)]
+        (if-let [{:keys [start end match-idx]} (silence-target dna dna-open tem)]
           (let [new-dna-open (set-vector-range dna-open start end true)
                 next-offset-full (dna/offset-into-full-dna next-offset dna-open)
                 next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
-            {:cell-immediate
-             {:dna-open? new-dna-open
-              :next-offset next-offset-adj}})
+            {:cell-immediate {:dna-open? new-dna-open}
+             :next-offset next-offset-adj
+             :read-idx {:template tem-idx
+                        :match-full match-idx
+                        :unsilenced [start end]}})
           ;; no match/target
-          {:next-offset next-offset}))
+          {:next-offset next-offset
+           :read-idx {:template tem-idx}}))
       ;; template too short
-      {:next-offset next-offset})))
+      {:next-offset next-offset
+       :read-idx {:template tem-idx}})))
 
 (defmethod reaction-op* 'goto
   [op cell offset cell-id phy]
   (let [open-dna (get-open-dna cell)
         tem (read-template open-dna offset)
-        terminator dna/codon-length]
+        terminator dna/codon-length
+        tem-idx [offset (+ offset (count tem))]]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
       (let [matches (binding-sites open-dna tem baseline-score)]
         (if (seq matches)
           (let [match (apply max-key :score matches)]
-            {:next-offset (:bind-end-x match)})
+            {:next-offset (:bind-end-x match)
+             :read-idx {:template tem-idx
+                        :match [(:bind-begin-base match) (:bind-end-base match)]}})
           ;; no match
-          {:next-offset (+ offset (count tem) terminator)}))
+          {:next-offset (+ offset (count tem) terminator)
+           :read-idx {:template tem-idx}}))
       ;; template too short
-      {:next-offset (+ offset (count tem) terminator)})))
+      {:next-offset (+ offset (count tem) terminator)
+       :read-idx {:template tem-idx}})))
 
 (defmethod reaction-op* 'energy-test
   [op cell offset cell-id phy]
@@ -492,7 +511,8 @@
         {:delayed {:clone {:in-direction (:orientation cell)
                            :child-product prod}}
          :next-offset (:next-offset prod-re)
-         :cell-immediate {:energy (- energy cost)}})
+         :cell-immediate {:energy (- energy cost)}
+         :read-idx (:read-idx prod-re)})
       ;; not enough energy
       {:next-offset :stop-reaction})))
 
