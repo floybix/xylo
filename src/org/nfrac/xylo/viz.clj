@@ -34,8 +34,8 @@
              :round  true}
             {:name   "fill",
              :type   "quantize",
-             :domain [0 cell/max-energy],
-             :range  {:scheme "reds", :count (min 10 (int cell/max-energy))}}]
+             :domain [0 (:max cell/energies)],
+             :range  {:scheme "reds", :count (min 10 (int (:max cell/energies)))}}]
    :axes   [{:scale "x", :orient "bottom"}
             {:scale "y", :orient "left"}]
    :data   [{:name "cells"
@@ -55,7 +55,16 @@
                             :offset {:field "orientation"} }
               :outerRadius {:scale "x", :value 0.5}
               :fillOpacity {:value 1}},
-             :hover {:fillOpacity {:value 1}}}}]
+             :hover {:fillOpacity {:value 1}}}}
+           {:type "text"
+            :from {:data "cells"}
+            :encode
+            {:enter
+             {:x {:scale "x", :field "x"}
+              :y {:scale "y", :field "y"}
+              :text {:field "id"}
+              :fontSize {:scale "x", :value 0.3}
+              :align {:value "center"}}}}]
    :legends [{:fill "fill"
               :title "Energy"}]
    })
@@ -72,7 +81,7 @@
                           (assoc :x x
                                  :y y
                                  :lifeFrac (- 1.0 (/ z cell/starvation-steps))
-                                 :id id))))
+                                 :id (name id)))))
         bonds-data (for [[from tos] (sort (:bonds (:physics world)))
                          to (sort tos)]
                      {:from from
@@ -200,8 +209,6 @@
                        :sort {:field "bidx", :order "ascending"}}
               :padding 0.1}]
     :axes [{:scale "bind"
-            :orient "right"}
-           {:scale "bind-by-index"
             :orient "left"}]
     :data [{:name "binds"
             :values binds-data}
@@ -311,6 +318,16 @@
                :fill        {:scale "read-type-cols" :field "read-type"}
                :fillOpacity {:value 0.5}
                :stroke      {:value "black"}}}}
+            {:type "text"
+             :from {:data "re"}
+             :zindex 3
+             :encode
+             {:enter
+              {:x {:scale "base", :field "end"}
+               :y {:scale "re-step", :field "step-name", :band 0.5}
+               :text {:field "post-energy"}
+               :baseline {:value "middle"}
+               :align {:value "right"}}}}
             ]
     :legends [{:orient "bottom"
                :fill "read-type-cols"
@@ -341,8 +358,11 @@
                                             (:read-idx re-step))]
                       [read-type [read-begin read-end]] read-idx]
                   {:step-index step-i
-                   :step-name (str (name op-code) " " step-i)
+                   :step-name (str (name op-code) " ." step-i)
                    :op-code (name op-code)
+                   :post-energy (when (= read-type :operation)
+                                  (when-let [e (get-in re-step [:cell-immediate :energy])]
+                                    (str "e=" e)))
                    ;:next-offset next-off
                    :read-type (name read-type)
                    :begin (cond-> read-begin
@@ -354,6 +374,9 @@
                    })]
     (-> (reaction-viz* dna-vega re-data
                        [900 (* 50 (count (:reaction-log re)))])
+        (assoc :title {:text (str "Reaction of cell " cell-id
+                                  " t=" time-step
+                                  " e=" (:energy cell))})
         (with-vega-meta))))
 
 (comment

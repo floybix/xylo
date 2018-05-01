@@ -16,9 +16,15 @@
 (def weight-power 1)
 (def min-template-bases (* 2 dna/codon-length))
 (def max-ops 36)
-(def max-energy 10)
-(def sun-energy 3)
-(def sugar-energy 1)
+;; note cell metabolism requirement is fixed at 1 unit per time step
+(def energies
+  {:max 10
+   :sun 3
+   :sugar 1
+   :bond 1
+   :clone 4
+   :product 1
+   :push 2})
 (def starvation-steps 8)
 
 (s/def ::product-counts
@@ -273,7 +279,7 @@
 
 (defn read-template
   ([dna offset]
-   (read-template dna offset #{:terminator 'stop-reaction}))
+   (read-template dna offset #(= % :terminator)))
   ([dna offset terminator?]
    (loop [dna (drop offset dna)
           tem []]
@@ -290,7 +296,7 @@
 (defmethod reaction-op* 'product
   [op cell offset cell-id phy]
   (let [open-dna (get-open-dna cell)
-        cost 1
+        cost (:product energies)
         energy (:energy cell)]
     (if (>= energy cost)
       (let [tem (read-template open-dna offset)
@@ -424,7 +430,7 @@
 (defmethod reaction-op* 'energy-test
   [op cell offset cell-id phy]
   (let [open-dna (get-open-dna cell)
-        e-threshold (* max-energy (/ offset (count open-dna)))]
+        e-threshold (* (:max energies) (/ offset (count open-dna)))]
     (if (> (:energy cell) e-threshold)
       (reaction-op 'goto cell offset cell-id phy)
       ;; test failed, skip goto
@@ -454,7 +460,7 @@
 
 (defmethod reaction-op* 'push
   [op cell offset cell-id phy]
-  (let [cost 2
+  (let [cost (:push energies)
         energy (:energy cell)]
     (if (>= energy cost)
       {:delayed {:push {:in-direction (:orientation cell)}}
@@ -480,7 +486,7 @@
 
 (defmethod reaction-op* 'bond-form
   [op cell offset cell-id phy]
-  (let [cost 1
+  (let [cost (:bond energies)
         energy (:energy cell)
         dir (:orientation cell)]
     (if (>= energy cost)
@@ -502,7 +508,7 @@
 
 (defmethod reaction-op* 'clone
   [op cell offset cell-id phy]
-  (let [cost 4
+  (let [cost (:clone energies)
         energy (:energy cell)]
     (if (>= energy cost)
       (let [prod-re (reaction-op 'product cell offset cell-id phy)
@@ -558,16 +564,16 @@
               _ (assert (= dna/codon-length (count codon)))
               op (dna/codon->op codon)
               next-off* (+ offset dna/codon-length)
-              re (reaction-op op (:cell ret) next-off* cell-id phy)
-              next-off (or (:next-offset re) next-off*)
+              r (reaction-op op (:cell ret) next-off* cell-id phy)
+              next-off (or (:next-offset r) next-off*)
               ]
           (recur next-off
                  (inc counter)
                  (= next-off :stop-reaction)
                  (-> ret
-                     (update :cell merge (:cell-immediate re))
-                     (update :effects conj (:delayed re))
-                     (update :reaction-log conj [op offset re]))))))))
+                     (update :cell merge (:cell-immediate r))
+                     (update :effects conj (:delayed r))
+                     (update :reaction-log conj [op offset r]))))))))
 
 (s/def ::effects (s/every (s/nilable ::delayed)))
 

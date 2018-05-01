@@ -135,7 +135,7 @@
 
 (defn rand-nth
   [rng xs]
-  (nth xs (rand-int rng (count xs))))
+  (nth xs (rand-int rng 0 (count xs))))
 
 (def mutation-point-prob (double (/ 1 100)))
 (def mutation-delete-prob (double (/ 1 20)))

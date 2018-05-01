@@ -10,6 +10,7 @@
 (s/def ::width (s/double-in ::min 1 ::NaN? false))
 (s/def ::height (s/double-in ::min 1 ::NaN? false))
 (s/def ::bonds (s/every-kv ::phys/part-id (s/every ::phys/part-id, :kind set?)))
+(s/def ::parts-list (s/every ::phys/part-id))
 
 (s/def ::world
   (s/keys :req-un [::width
@@ -57,6 +58,12 @@
       ;; done
       [supp un])))
 
+(s/fdef grounding
+        :args (s/cat :ccs ::parts-list
+                     :supp-id? (s/fspec :args (s/cat :id ::phys/part-id)))
+        :ret (s/cat :supp ::parts-list
+                    :un ::parts-list))
+
 (defn on-ground?
   [[x y]]
   (< y 1.0))
@@ -65,13 +72,14 @@
   [[x y] supp-xys]
   (->> supp-xys
        (some (fn [[ix iy]]
-               (and (< (abs (- ix x)) 1.0)
-                    (< 0.0 (- y iy) 1.0))))))
+               (and (<= (abs (- ix x)) 1.0)
+                    (<= 0.0 (- y iy) 1.0))))))
 
 (defn unsupported-ids
   [parts bonds]
   (let [singletons (keys (apply dissoc parts (keys bonds)))
-        g (apply graph/graph bonds singletons)
+        g (apply graph/graph (cond-> singletons
+                               (seq bonds) (conj bonds)))
         ccs (alg/connected-components g)]
     (loop [[supp un] (grounding ccs #(on-ground? (parts %)))]
       (if (seq un)
@@ -85,6 +93,11 @@
             (apply concat un)))
         ;; nothing unsupported
         nil))))
+
+(s/fdef unsupported-ids
+        :args (s/cat :parts ::parts
+                     :bonds ::bonds)
+        :ret (s/nilable ::parts-list))
 
 (defrecord GridWorld [width
                       height
@@ -102,7 +115,7 @@
 
   (create-part
    [this pos]
-   (let [id (gensym "part")]
+   (let [id (gensym "p")]
      [id (assoc-in this [:parts id] pos)]))
 
   (delete-part
@@ -125,8 +138,8 @@
    (when-let [[x y] (get parts part-id)]
      (->> (dissoc parts part-id)
           (keep (fn [[id [ix iy]]]
-              (when (and (< (abs (- x ix)) 1.0)
-                         (< (abs (- y iy)) 1.0))
+              (when (and (<= (abs (- x ix)) 1.0)
+                         (<= (abs (- y iy)) 1.0))
                 id))))))
 
   (touching-ground?
@@ -151,9 +164,9 @@
          [ax ay] [(+ x dx) (+ y dy)]]
      (->> (dissoc parts part-id)
           (keep (fn [[id [ix iy]]]
-                  (let [d (+ (Math/pow (- ix ax) 2)
-                             (Math/pow (- iy ay) 2))]
-                    (when (< d 0.5)
+                  (let [d (Math/sqrt (+ (Math/pow (- ix ax) 2)
+                                        (Math/pow (- iy ay) 2)))]
+                    (when (<= d 0.5)
                       [id d]))))
           (sort-by second)
           (ffirst))))

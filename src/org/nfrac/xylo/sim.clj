@@ -6,6 +6,8 @@
             [clojure.test.check.random :as random]
             [clojure.spec.alpha :as s]))
 
+(def physics-dt 1.0)
+
 (s/def ::cell-pop
   (s/map-of ::phys/part-id ::cell/cell))
 
@@ -179,12 +181,13 @@
   "Accumulates solar energy in cells receiving direct sunlight."
   [world]
   (let [phy (:physics world)
-        touching (::touching-cache world)]
+        touching (::touching-cache world)
+        max-energy (:max cell/energies)]
     (reduce (fn [world cell-id]
               (cond-> world
                 (phys/in-sunlight? phy cell-id)
                 (update-in [:cell-pop cell-id :energy]
-                           #(min cell/max-energy (+ % cell/sun-energy)))))
+                           #(min max-energy (+ % (:sun cell/energies))))))
             world
             (keys (:cell-pop world)))))
 
@@ -199,7 +202,8 @@
   demand side."
   [world]
   (let [sugar-from-to (:sugar-from-to world)
-        touching (::touching-cache world)]
+        touching (::touching-cache world)
+        max-energy (:max cell/energies)]
     (reduce (fn [world cell-id]
               (let [sugar-to (->> (sugar-from-to cell-id)
                                   (filter (touching cell-id)))]
@@ -208,9 +212,9 @@
                        my-e (get-in world [:cell-pop cell-id :energy])]
                   (if-let [to (first sugar-to)]
                     (let [to-e (get-in cell-pop [to :energy])
-                          diff-e (-> cell/sugar-energy
+                          diff-e (-> (:sugar cell/energies)
                                      (min my-e)
-                                     (min (- cell/max-energy to-e)))]
+                                     (min (- max-energy to-e)))]
                       (recur (rest sugar-to)
                              (assoc-in cell-pop [to :energy] (+ to-e diff-e))
                              (- my-e diff-e)))
@@ -226,16 +230,22 @@
         :args (s/cat :world ::world)
         :ret ::world)
 
-(defn death-step
-  "Increments the starvation counter on cells with zero energy. If a
-  cell has been starving for long enough it dies and is removed from
-  the simulation, along with any bonds and sugar channels."
+(defn metabolism-step
+  "Consumes 1 energy in all cells representing metabolic requirements of
+  life. Increments the starvation counter on cells without enough
+  energy. If a cell has been starving for long enough it dies and is
+  removed from the simulation, along with any bonds and sugar
+  channels. When a starving cell has energy again, it uses as much as
+  it can to pay off the metabolic deficit incurred by starvation."
   [world]
   (reduce (fn [world cell-id]
             (let [cell (get-in world [:cell-pop cell-id])
                   starv (:starvation cell)]
               (if (pos? (:energy cell))
-                (assoc-in world [:cell-pop cell-id :starvation] 0)
+                (let [e-use (-> (:starvation cell) (min (:energy cell)) (max 1))]
+                  (-> world
+                      (update-in [:cell-pop cell-id :energy] - e-use)
+                      (update-in [:cell-pop cell-id :starvation] #(max 0 (- % e-use)))))
                 ;; starving
                 (if (< starv cell/starvation-steps)
                   (update-in world [:cell-pop cell-id :starvation] inc)
@@ -247,9 +257,20 @@
           world
           (keys (:cell-pop world))))
 
-(s/fdef death-step
+(s/fdef metabolism-step
         :args (s/cat :world ::world)
         :ret ::world)
+
+(defn pre-reaction-steps
+  [world]
+  (-> world
+      (update :physics phys/step physics-dt)
+      (init-step)
+      (sun-step)
+      (sugar-step)
+      (metabolism-step)
+      (init-step) ;; update for any destroyed cells
+      ))
 
 (defn reaction-step
   "Selects a reaction for each cell, then applies all the reaction effects."
@@ -277,10 +298,7 @@
 (defn world-step
   [world]
   (-> world
-      (init-step)
-      (sun-step)
-      (sugar-step)
-      (death-step)
+      (pre-reaction-steps)
       (reaction-step)))
 
 (s/fdef world-step
