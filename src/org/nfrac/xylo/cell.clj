@@ -303,7 +303,7 @@
             terminator dna/codon-length
             tem-idx [offset (+ offset (count tem))]]
         (if (>= (count tem) min-template-bases)
-          {:delayed {:product {:dna (map dna/translate tem)}}
+          {:delayed {:product {:dna (apply str (map dna/translate tem))}}
            :next-offset (+ offset (count tem) terminator)
            :cell-immediate {:energy (- energy cost)}
            :read-idx {:template tem-idx}}
@@ -509,16 +509,20 @@
 (defmethod reaction-op* 'clone
   [op cell offset cell-id phy]
   (let [cost (:clone energies)
-        energy (:energy cell)]
+        energy (:energy cell)
+        dir (:orientation cell)]
     (if (>= energy cost)
-      (let [prod-re (reaction-op 'product cell offset cell-id phy)
-            prod (or (get-in prod-re [:delayed :product :dna])
-                     (dna/fixed-stimuli :birth-default))]
-        {:delayed {:clone {:in-direction (:orientation cell)
-                           :child-product prod}}
-         :next-offset (:next-offset prod-re)
-         :cell-immediate {:energy (- energy cost)}
-         :read-idx (:read-idx prod-re)})
+      (if (not (phys/part-in-direction phy cell-id dir))
+        (let [prod-re (reaction-op 'product cell offset cell-id phy)
+              prod (or (get-in prod-re [:delayed :product :dna])
+                       (dna/fixed-stimuli :birth-default))]
+          {:delayed {:clone {:in-direction (:orientation cell)
+                             :child-product prod}}
+           :next-offset (:next-offset prod-re)
+           :cell-immediate {:energy (- energy cost)}
+           :read-idx (:read-idx prod-re)})
+        ;; blocked by existing cell
+        {})
       ;; not enough energy
       {:next-offset :stop-reaction})))
 
@@ -557,11 +561,12 @@
         ret
         (> counter max-ops)
         ret
-        (>= offset (count open-dna))
+        (>= offset (dec (count open-dna)))
         ret
         :else
         (let [codon (vec (take dna/codon-length (drop offset open-dna)))
-              _ (assert (= dna/codon-length (count codon)))
+              _ (assert (= dna/codon-length (count codon))
+                        (str "Re-step " counter " offset " offset " open-dna " (count open-dna)))
               op (dna/codon->op codon)
               next-off* (+ offset dna/codon-length)
               r (reaction-op op (:cell ret) next-off* cell-id phy)

@@ -90,9 +90,12 @@
                          to (sort tos)]
                      {:from from
                       :to to})]
-    (space-viz* (vec cell-data) (vec bonds-data) (vec sugar-data)
-              [(:width phy) (:height phy)]
-              width-px)))
+    (->
+     (space-viz* (vec cell-data) (vec bonds-data) (vec sugar-data)
+                 [(:width phy) (:height phy)]
+                 width-px)
+     (assoc :title {:text (str (count (:cell-pop world)) " cells "
+                               " t=" (:time-step world))}))))
 
 (defn silenced-runs
   [dna-open?]

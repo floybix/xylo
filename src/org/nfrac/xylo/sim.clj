@@ -89,6 +89,19 @@
                      :time-step nat-int?)
         :ret (s/nilable ::cell/reaction))
 
+(defn- abs [x] (if (neg? x) (- x) x))
+
+(defn intruding
+  [phy part-id]
+  (let [within 0.4
+        [x y] (phys/position phy part-id)
+        parts (:parts phy)]
+    (->> (dissoc parts part-id)
+         (keep (fn [[id [ix iy]]]
+                 (when (and (<= (abs (- x ix)) within)
+                            (<= (abs (- y iy)) within))
+                   id))))))
+
 (defn apply-reaction-effect
   [world cell-id effect]
   (let [cell-pop (:cell-pop world)
@@ -115,10 +128,13 @@
                          (assoc :dna-open? new-dna-open)
                          (assoc :orientation (:orientation cell))
                          (assoc-in [:product-counts child-product] 1))]
-        (-> world
-            (assoc :physics phy)
-            (assoc :rng rng)
-            (update :cell-pop assoc new-id new-cell)))
+        ;; a new cell might have been created in the same place; if so, abort
+        (if (seq (intruding phy new-id))
+          world
+          (-> world
+              (assoc :physics phy)
+              (assoc :rng rng)
+              (update :cell-pop assoc new-id new-cell))))
 
       :sex
       (let [dir (:in-direction fx-args)
@@ -136,10 +152,13 @@
             new-cell (-> (cell/new-cell new-dna)
                          (assoc :orientation (:orientation cell))
                          (assoc-in [:product-counts child-product] 1))]
-        (-> world
-            (assoc :physics phy)
-            (assoc :rng rng)
-            (update :cell-pop assoc new-id new-cell)))
+        ;; a new cell might have been created in the same place; if so, abort
+        (if (seq (intruding phy new-id))
+          world
+          (-> world
+             (assoc :physics phy)
+             (assoc :rng rng)
+             (update :cell-pop assoc new-id new-cell))))
 
       :bond-form
       (let [targ-id (:target fx-args)]
@@ -170,7 +189,7 @@
     (assoc world ::touching-cache
            (into {}
                  (map (fn [cell-id]
-                        [cell-id (phys/touching phy cell-id)]))
+                        [cell-id (set (phys/touching phy cell-id))]))
                  (keys (:cell-pop world))))))
 
 (s/fdef init-step
@@ -181,7 +200,6 @@
   "Accumulates solar energy in cells receiving direct sunlight."
   [world]
   (let [phy (:physics world)
-        touching (::touching-cache world)
         max-energy (:max cell/energies)]
     (reduce (fn [world cell-id]
               (cond-> world
