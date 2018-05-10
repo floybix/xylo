@@ -1,16 +1,17 @@
 # issues
 
-xylo / xylica?
+viz products
+
+viz sugar channels
+
 
 ## impl
 
-DNA as sequence not string
 
-  - str-matching use sequence not string
+* check for cell in current orientation as goto-like
+
 
 hand-craft genomes to test each operation.
-
-use a simple testing physics/world.
 
 
 ## design

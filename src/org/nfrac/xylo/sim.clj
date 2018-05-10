@@ -76,10 +76,10 @@
                     (assoc :stimuli stim)
                     (assoc ::cell/path (:path bind)))]
         (if (= kind :products)
-          (let [[product n] (-> cell :product-count (nth kind-i))]
+          (let [[product n] (-> cell :product-counts (seq) (nth kind-i))]
             (if (> n 1)
-              (update-in ret [:cell :product-count product] dec)
-              (update-in ret [:cell :product-count] dissoc product)))
+              (update-in ret [:cell :product-counts product] dec)
+              (update-in ret [:cell :product-counts] dissoc product)))
           ret)))))
 
 (s/fdef cell-reaction
@@ -112,7 +112,7 @@
 
       :product
       (let [prod (:dna fx-args)]
-        (update-in world [:cell-pop cell-id :product-count prod]
+        (update-in world [:cell-pop cell-id :product-counts prod]
                    (fnil inc 0)))
 
       :clone

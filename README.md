@@ -107,9 +107,27 @@ silencing
 
 
 
+## Installation
+
+Follow the instructions to build
+[https://github.com/jeffdaily/parasail-java](Parasail-Java), and
+link to it from the local `lib/` directory:
+
+``` shell
+ln -s /path/to/parasail-java/build/ lib/
+```
+
+
 ## Usage
 
 FIXME
+
+``` shell
+lein run -m gorilla-repl.core
+```
+
+& open [http://127.0.0.1:8990/worksheet.html?filename=examples/worksheets/first.clj](http://127.0.0.1:8990/worksheet.html?filename=examples/worksheets/first.clj).
+
 
 ## License
 

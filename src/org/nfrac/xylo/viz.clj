@@ -2,8 +2,7 @@
   (:require [org.nfrac.xylo.sim :as sim]
             [org.nfrac.xylo.physics :as phys]
             [org.nfrac.xylo.cell :as cell]
-            [org.nfrac.xylo.dna :as dna]
-            [org.nfrac.str-alignment.core :as ali])
+            [org.nfrac.xylo.dna :as dna])
   )
 
 (defn with-vega-meta
@@ -105,8 +104,9 @@
          runs []]
     (if (seq dna-open?)
       (let [o? (first dna-open?)
-            start? (and o? (nil? run-start))
-            end? (and (not o?) run-start)]
+            x? (not o?)
+            start? (and x? (nil? run-start))
+            end? (and (not x?) run-start)]
         (recur (rest dna-open?)
                (inc i)
                (cond start? i
@@ -153,9 +153,10 @@
             {:enter
              {:x           {:scale "base", :field "begin"}
               :x2          {:scale "base", :field "end"}
-              :y           {:value 0}
-              :height      "height"
-              :fill        {:value "#aaaaaa"}}}}
+              :y           {:scale row-scale-name, :band -1}
+              :height      {:signal "height", :offset {:scale row-scale-name, :band 1}}
+              :fill        {:value "#660000"}
+              :fillOpacity {:value 0.25}}}}
            {:type "rect"
             :from {:data "codon-bars"}
             :zindex 0
@@ -176,7 +177,8 @@
               :y           {:scale row-scale-name, :band -0.5}
               :text        {:field "base"}
               :font        {:value "monospace"}
-              :fontSize    {:scale row-scale-name, :band 0.4}
+              :fontSize    {:scale row-scale-name, :band 0.25}
+              :align       {:value "left"}
               :baseline    {:value "middle"}
               }}}]})
 
@@ -234,10 +236,11 @@
              :encode
              {:enter
               {:x           {:scale "base", :field "at"}
-               :y           {:scale "bind-by-index", :field "bidx", :band 0.5}
+               :y           {:scale "bind", :field "name", :band 0.5}
                :text        {:field "base"}
                :font        {:value "monospace"}
-               :fontSize    {:scale "bind", :band 0.4}
+               :fontSize    {:scale "bind", :band 0.25}
+               :align       {:value "left"}
                :baseline    {:value "middle"}
                }}}
             ]}))
@@ -272,14 +275,12 @@
                       :score (:score m)
                       :begin (dna/offset-into-full-dna (:bind-begin-base m) open?)
                       :end (dna/offset-into-full-dna (inc (:bind-end-base m)) open?)})
-        ok #(max 0 (dec %))
+        ok #(max 0 %)
         align-data (for [m binds
-                         :let [vs-dna (:vs-dna m)
-                               amat (ali/alignments odna vs-dna cell/alignment-options)
-                               anchor-loc [(inc (:bind-end-base m))
-                                           (inc (:vs-end-base m))]]
-                         [i vs-i] (ali/match-path anchor-loc amat false)]
+                         :let [vs-dna (:vs-dna m)]
+                         [i vs-i] (:match-path m)]
                      {:bidx (:bind-index m)
+                      :name (:name m)
                       :at (dna/offset-into-full-dna (ok i) open?)
                       :base (nth vs-dna (ok vs-i))})
         ]

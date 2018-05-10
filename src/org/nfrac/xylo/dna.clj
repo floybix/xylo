@@ -1,9 +1,15 @@
 (ns org.nfrac.xylo.dna
-  (:require [org.nfrac.str-alignment.core :as ali]
+  (:require [org.nfrac.xylo.align :as ali]
             [clojure.test.check.random :as random]
             [clojure.spec.gen.alpha :as gen]
             [clojure.spec.alpha :as s])
   (:refer-clojure :exclude [complement bases rand-int rand-nth]))
+
+(def align-options
+  {:match-weight 1
+   :mismatch-weight -1.5
+   :gap-open-weight 4
+   :gap-ext-weight 1.5})
 
 (def bases
   (seq "acgt"))
@@ -240,9 +246,9 @@
   chooses a number of crossover points, and alternates the sequences
   between those points."
   [dna1 dna2 rng]
-  (let [mat (ali/alignments dna1 dna2 {:global? true})
-        anchor [(count dna1) (count dna2)]
-        mpath (ali/match-path anchor mat true)
+  (let [match (ali/align dna1 dna2 (assoc align-options
+                                          :global? true))
+        mpath (:match-path match)
         n-cross (inc (quot (max (count dna1) (count dna2))
                            crossover-freq-bases))
         rngs (random/split-n rng n-cross)

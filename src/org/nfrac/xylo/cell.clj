@@ -2,16 +2,11 @@
   (:require [org.nfrac.xylo.dna :as dna]
             [org.nfrac.xylo.physics :as phys]
             [org.nfrac.xylo.physics-grid :refer [in-pi-pi]]
-            [org.nfrac.str-alignment.core :as ali]
+            [org.nfrac.xylo.align :as ali]
             [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random]))
 
 
-(def alignment-options
-  {:match-weight 1
-   :mismatch-weight -1.5
-   :gap-open-weight -3
-   :gap-ext-weight -1.5})
 (def baseline-score 5)
 (def weight-power 1)
 (def min-template-bases (* 2 dna/codon-length))
@@ -38,12 +33,14 @@
 (s/def ::starvation nat-int?)
 
 (s/def ::cell
-  (s/keys :req-un [::dna/dna
-                   ::dna/dna-open?
-                   ::product-counts
-                   ::orientation
-                   ::energy
-                   ::starvation]))
+  (->
+   (s/keys :req-un [::dna/dna
+                    ::dna/dna-open?
+                    ::product-counts
+                    ::orientation
+                    ::energy
+                    ::starvation])
+   (s/and #(= (count (:dna %)) (count (:dna-open? %))))))
 
 (defn new-cell
   [dna]
@@ -128,22 +125,19 @@
   and end (exclusive) indexes to dna of the match, aligned to codon
   boundaries."
   [dna vs-dna min-score]
-  (let [amat (ali/alignments dna vs-dna alignment-options)
-        matches (ali/distinct-local-matches amat min-score)
-        nnn dna/codon-length
-        ok #(max 0 (dec %))]
+  (let [matches (ali/multi-align dna vs-dna min-score dna/align-options)
+        nnn dna/codon-length]
     (->> matches
-         (map (fn [locs]
-                (let [loc (last locs)
-                      score (:score (get amat loc))
-                      begin-loc (first locs)]
-                  {:bind-end-base (ok (first loc))
-                   :bind-begin-base (ok (first begin-loc))
-                   :vs-end-base (ok (second loc))
-                   :vs-begin-base (ok (second begin-loc))
-                   :bind-begin (let [x (ok (first begin-loc))] (- x (mod x nnn)))
-                   :bind-end-x (let [x (ok (first loc))] (+ nnn (- x (mod x nnn))))
-                   :score score}))))))
+         (map (fn [m]
+                (let [{:keys [match-path score]} m
+                      [start-q start-r] (first match-path)
+                      [end-q end-r] (last match-path)]
+                  (assoc m
+                         :bind-begin (let [x start-q] (- x (mod x nnn)))
+                         :bind-end-x (let [x end-q] (+ nnn (- x (mod x nnn))))
+                         :bind-begin-base start-q
+                         :bind-end-base end-q
+                         :vs-end-base end-r)))))))
 
 (s/fdef binding-sites
         :args (s/cat :dna ::dna/dna
@@ -282,14 +276,14 @@
    (read-template dna offset #(= % :terminator)))
   ([dna offset terminator?]
    (loop [dna (drop offset dna)
-          tem []]
+          tem ""]
      (if (seq dna)
        (let [codon (vec (take dna/codon-length dna))
              op (dna/codon->op codon)]
          (if (terminator? op)
            tem
            ;; otherwise, append and continue
-           (recur (drop dna/codon-length dna) (into tem codon))))
+           (recur (drop dna/codon-length dna) (apply str tem codon))))
        ;; end of DNA
        tem))))
 
@@ -314,6 +308,8 @@
       {:next-offset :stop-reaction})))
 
 (defn set-vector-range
+  "Returns v with values between from (inclusive) and to (exclusive)
+  replaced by x."
   [v from to x]
   (loop [i from
          v (transient v)]
@@ -322,6 +318,11 @@
       (persistent! v))))
 
 (defn silence-target
+  "Finds best site matching tem against dna, then reads the following
+  dna until a silence-terminator. Returns this as a range of indexes
+  to silence or unsilence: start inclusive, end exclusive. Returns nil
+  if there was no match to the template, or if the target dna segment
+  is too short."
   [dna dna-open? tem]
   ;; NOTE: use dna not open-dna because that is idempotent,
   ;; i.e. stably repeatable after silencing has taken effect
@@ -333,7 +334,8 @@
             silence-start (:bind-begin match)
             target-dna (read-template dna silence-start
                                       #(= % :silence-terminator))
-            silence-end (+ silence-start (count target-dna) terminator)]
+            silence-end (min (+ silence-start (count target-dna) terminator)
+                             (count dna))]
         (if (seq target-dna)
           {:start silence-start
            :end silence-end
@@ -343,11 +345,15 @@
       ;; no match
       nil)))
 
+(s/def :silence/start nat-int?)
+(s/def :silence/end nat-int?)
+
 (s/fdef silence-target
         :args (s/cat :dna ::dna/dna
                      :dna-open ::dna-open?
                      :tem ::dna/dna)
-        :ret (s/nilable (s/keys)))
+        :ret (s/nilable (s/keys :req-un [:silence/start
+                                         :silence/end])))
 
 (defmethod reaction-op* 'silence
   [op cell offset cell-id phy]
