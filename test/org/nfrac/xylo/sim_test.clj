@@ -7,10 +7,10 @@
 (deftest world-test
   (let [world (sim/new-world 10 10 1)]
     (testing "First step"
-      (let [w1 (sim/world-step world 1)]
+      (let [w1 (sim/world-step world)]
         ))
     (testing "Second step"
-      (let [w1 (sim/world-step world 1)
-            w2 (sim/world-step w1 2)]
+      (let [w1 (sim/world-step world)
+            w2 (sim/world-step w1)]
         ))
     ))

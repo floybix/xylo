@@ -22,6 +22,6 @@
         (println "step 0.5")
         (println (sort (:parts (nth ws 3))))
         (is (= (set (vals (:parts (nth ws 3))))
-               #{[1.0 0.5] [5.0 0.5] [5.0 1.0] [5.5 1.0]})
+               #{[1.0 0.5] [5.0 0.5] [5.0 1.5] [5.5 1.5]})
             "Parts with bonds fall into expected places.")
         ))))

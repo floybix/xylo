@@ -25,12 +25,12 @@
 (s/def ::product-counts
   (s/map-of ::dna/dna pos-int?))
 
-(s/def ::energy nat-int?)
+(s/def ::energy (s/int-in 0 (inc (:max energies))))
 
 (s/def ::orientation (s/double-in :min (- -0.01 Math/PI)
                                   :max (+ 0.01 Math/PI) :NaN? false))
 
-(s/def ::starvation nat-int?)
+(s/def ::starvation (s/int-in 0 (inc starvation-steps)))
 
 (s/def ::cell
   (->

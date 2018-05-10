@@ -35,9 +35,16 @@
 (defn codon-boundary? [n] (zero? (mod n codon-length)))
 
 (s/def ::dna
-  (s/and string?
-         #(every? base? %)
-         #(codon-boundary? (count %))))
+  (->
+   (s/and string?
+          #(every? base? %)
+          #(codon-boundary? (count %)))
+   (s/with-gen
+     (fn []
+       (->> (s/gen (s/every ::base, :min-count (* 3 codon-length)))
+            (gen/fmap (fn [es]
+                        (let [extra (mod (count es) codon-length)]
+                          (apply str (drop extra es))))))))))
 
 (s/def ::dna-open?
   (s/every boolean?, :min-count 1, :kind vector?))
