@@ -123,7 +123,7 @@
             child-product (:child-product fx-args)
             [new-id phy] (phys/create-part phy new-pos)
             [rng rng*] (random/split (:rng world))
-            [new-dna new-dna-open] (dna/mutate (:dna cell) (:dna-open? cell) rng*)
+            [new-dna new-dna-open] (dna/mutate [(:dna cell) (:dna-open? cell)] rng*)
             new-cell (-> (cell/new-cell new-dna)
                          (assoc :dna-open? new-dna-open)
                          (assoc :orientation (:orientation cell))
@@ -178,7 +178,7 @@
 
       :sugar-stop
       (let [targ-id (:target fx-args)]
-        (update-in world [:sugar-from-to cell-id] disj targ-id))
+        (update-in world [:sugar-from-to cell-id] #(disj (or % #{}) targ-id)))
 
       )))
 

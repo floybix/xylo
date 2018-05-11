@@ -212,19 +212,23 @@
                    ::orientation]))
 
 (s/def ::in-direction ::orientation)
-(s/def ::init-offset ::offset)
+(s/def ::target ::phys/part-id)
+(s/def ::sex-id ::phys/part-id)
+(s/def ::child-product ::dna/dna)
 
-(s/def ::product ::dna/dna)
-(s/def ::clone (s/keys :req-un [::in-direction ::init-offset]))
-(s/def ::bond-form (s/keys :req-un [::in-direction]))
-(s/def ::bond-break (s/keys :req-un [::in-direction]))
-(s/def ::sugar-start (s/keys :req-un [::in-direction]))
-(s/def ::sugar-stop (s/keys :req-un [::in-direction]))
+(s/def ::product (s/keys :req-un [::dna/dna]))
+(s/def ::clone (s/keys :req-un [::in-direction ::child-product]))
+(s/def ::sex (s/keys :req-un [::in-direction ::child-product ::sex-id]))
+(s/def ::bond-form (s/keys :req-un [::target]))
+(s/def ::bond-break (s/keys :req-un [::target]))
+(s/def ::sugar-start (s/keys :req-un [::target]))
+(s/def ::sugar-stop (s/keys :req-un [::target]))
 (s/def ::push (s/keys :req-un [::in-direction]))
 
 (s/def ::delayed
   (s/keys :req-un [(or ::product
                        ::clone
+                       ::sex
                        ::bond-form
                        ::bond-break
                        ::sugar-start
@@ -307,16 +311,6 @@
       ;; not enough energy
       {:next-offset :stop-reaction})))
 
-(defn set-vector-range
-  "Returns v with values between from (inclusive) and to (exclusive)
-  replaced by x."
-  [v from to x]
-  (loop [i from
-         v (transient v)]
-    (if (< i to)
-      (recur (inc i) (assoc! v i x))
-      (persistent! v))))
-
 (defn silence-target
   "Finds best site matching tem against dna, then reads the following
   dna until a silence-terminator. Returns this as a range of indexes
@@ -350,7 +344,7 @@
 
 (s/fdef silence-target
         :args (s/cat :dna ::dna/dna
-                     :dna-open ::dna-open?
+                     :dna-open ::dna/dna-open?
                      :tem ::dna/dna)
         :ret (s/nilable (s/keys :req-un [:silence/start
                                          :silence/end])))
@@ -367,7 +361,7 @@
       (let [dna (:dna cell)
             dna-open (:dna-open? cell)]
         (if-let [{:keys [start end match-idx]} (silence-target dna dna-open tem)]
-          (let [new-dna-open (set-vector-range dna-open start end false)
+          (let [new-dna-open (dna/set-vector-range dna-open start end false)
                 next-offset-full (dna/offset-into-full-dna next-offset dna-open)
                 next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
             {:cell-immediate {:dna-open? new-dna-open}
@@ -397,7 +391,7 @@
       (let [dna (:dna cell)
             dna-open (:dna-open? cell)]
         (if-let [{:keys [start end match-idx]} (silence-target dna dna-open tem)]
-          (let [new-dna-open (set-vector-range dna-open start end true)
+          (let [new-dna-open (dna/set-vector-range dna-open start end true)
                 next-offset-full (dna/offset-into-full-dna next-offset dna-open)
                 next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
             {:cell-immediate {:dna-open? new-dna-open}

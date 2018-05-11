@@ -11,5 +11,6 @@
   :resource-paths ["lib/parasail.jar"]
   :jvm-opts ["-Djava.library.path=lib/"]
 
-  :profiles {:dev {:dependencies [[gorilla-repl "0.4.1-SNAPSHOT"]]}}
+  :profiles {:dev {:dependencies [[gorilla-repl "0.4.1-SNAPSHOT"]
+                                  [com.gfredericks/test.chuck "0.2.9"]]}}
 )

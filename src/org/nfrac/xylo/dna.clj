@@ -32,19 +32,22 @@
 (def translate (zipmap bases (drop 1 (cycle bases))))
 (def untranslate (zipmap (vals translate) (keys translate)))
 
-(defn codon-boundary? [n] (zero? (mod n codon-length)))
+(defn codon-boundary? [i] (zero? (mod i codon-length)))
+(defn to-codon-boundary [i] (- i (mod i codon-length)))
+
+(defn dna-gen
+  []
+  (->> (s/gen (s/every ::base, :min-count (* 3 codon-length)))
+       (gen/fmap (fn [es]
+                   (let [extra (mod (count es) codon-length)]
+                     (apply str (drop extra es)))))))
 
 (s/def ::dna
   (->
    (s/and string?
           #(every? base? %)
           #(codon-boundary? (count %)))
-   (s/with-gen
-     (fn []
-       (->> (s/gen (s/every ::base, :min-count (* 3 codon-length)))
-            (gen/fmap (fn [es]
-                        (let [extra (mod (count es) codon-length)]
-                          (apply str (drop extra es))))))))))
+   (s/with-gen dna-gen)))
 
 (s/def ::dna-open?
   (s/every boolean?, :min-count 1, :kind vector?))
@@ -92,6 +95,16 @@
   (zipmap [:sun :ground :birth-default]
           (map #(apply str (apply concat %))
                (partition 2 2 no-ops))))
+
+(defn set-vector-range
+  "Returns v with values between from (inclusive) and to (exclusive)
+  replaced by x."
+  [v from to x]
+  (loop [i from
+         v (transient v)]
+    (if (< i to)
+      (recur (inc i) (assoc! v i x))
+      (persistent! v))))
 
 (defn vector-subset
   [xs ?s]
@@ -171,37 +184,44 @@
       ;; done
       [(apply str (persistent! ds)) dna-open?])))
 
+(defn coll-delete
+  "Delete a section between i (inclusive) and j (exclusive)."
+  [coll i j]
+  (concat (take i coll)
+          (drop j coll)))
+
 (defn mutate-delete
   [[dna dna-open?] rng]
   (let [[r1 r2] (random/split-n rng 2)
-        i (rand-int r1 0 (- (count dna) codon-length))
-        j* (rand-int r2 0 (- (count dna) i))
-        j (-> j* (quot codon-length) (* codon-length))]
-    [(->> (concat (take i dna)
-                  (drop j dna))
+        i* (-> (rand-int r1 0 (count dna)) to-codon-boundary)
+        j* (-> (rand-int r2 0 (count dna)) to-codon-boundary)
+        [i j] (sort [i* j*])]
+    [(->> (coll-delete dna i j)
           (apply str))
-     (->> (concat (take i dna-open?)
-                  (drop j dna-open?))
+     (->> (coll-delete dna-open? i j)
           (vec))]
     ))
 
 (defn coll-mutate-shift
-  "Delete a section between i and j, and insert it at k."
+  "Take a section between i (inclusive) and j (exclusive), and shift it
+  forward by k indices, wrapping around as necessary."
   [coll i j k]
-  (let [coll* (concat (take i coll)
-                      (drop j coll))]
-    (concat (take k coll*)
-            (take (- j i) (drop i coll))
-            (drop k coll*))))
+  (let [sect (take (- j i) (drop i coll))
+        other (concat (take i coll)
+                      (drop j coll))
+        k-adj (mod (+ i k) (count other))]
+    (concat (take k-adj other)
+            sect
+            (drop k-adj other))))
 
 (defn mutate-shift
   [[dna dna-open?] rng]
   (let [[r1 r2 r3] (random/split-n rng 3)
-        ;; delete a section between i and j, and insert it at k
-        i (rand-int r1 0 (- (count dna) codon-length))
-        j* (rand-int r2 0 (- (count dna) i))
-        j (-> j* (quot codon-length) (* codon-length))
-        k (rand-int r3 0 (count dna))]
+        ;; delete a section between i and j, shift it forward by k
+        i* (-> (rand-int r1 0 (count dna)) to-codon-boundary)
+        j* (-> (rand-int r2 0 (count dna)) to-codon-boundary)
+        [i j] (sort [i* j*])
+        k (rand-int r3 0 (inc (- (count dna) (- j i))))]
     [(->> (coll-mutate-shift dna i j k)
           (apply str))
      (->> (coll-mutate-shift dna-open? i j k)
@@ -219,10 +239,10 @@
   [[dna dna-open?] rng]
   (let [[r1 r2 r3] (random/split-n rng 3)
         ;; take a section between i and j and insert a copy of it to k
-        i (rand-int r1 0 (- (count dna) codon-length))
-        j* (rand-int r2 0 (- (count dna) i))
-        j (-> j* (quot codon-length) (* codon-length))
-        k (rand-int r3 0 (count dna))]
+        i* (-> (rand-int r1 0 (count dna)) to-codon-boundary)
+        j* (-> (rand-int r2 0 (count dna)) to-codon-boundary)
+        k (-> (rand-int r3 0 (count dna)) to-codon-boundary)
+        [i j] (sort [i* j*])]
     [(->> (coll-mutate-dup dna i j k)
           (apply str))
      (->> (coll-mutate-dup dna-open? i j k)
@@ -230,7 +250,7 @@
     ))
 
 (defn mutate
-  [dna dna-open? rng]
+  [[dna dna-open?] rng]
   (let [[r1 r2 r3 r4 r5 r6 r7] (random/split-n rng 7)]
     (cond-> [dna dna-open?]
       true
@@ -242,11 +262,42 @@
       (< (random/rand-double r6) mutation-delete-prob)
       (mutate-delete r7))))
 
-(s/fdef mutate
-        :args (s/cat :dna ::dna
-                     :dna-open? ::dna-open?
-                     :rng ::rng)
-        :ret (s/tuple ::dna ::dna-open?))
+(s/def ::mutate-args
+  #_"Args spec for mutate, given an id here to allow generator override."
+  (s/cat :dna+ (s/tuple ::dna ::dna-open?)
+         :rng ::rng))
+
+(s/fdef mutate-pointwise
+        :args ::mutate-args
+        :ret (s/tuple ::dna ::dna-open?)
+        :fn (s/and #(= (count (-> % :ret first))
+                       (count (-> % :ret second)))
+                   #(= (count (-> % :args :dna+ first))
+                       (count (-> % :ret first)))
+                   #(= (count (-> % :args :dna+ second))
+                       (count (-> % :ret second)))))
+
+(s/fdef mutate-delete
+        :args ::mutate-args
+        :ret (s/tuple ::dna ::dna-open?)
+        :fn #(= (count (-> % :ret first))
+                (count (-> % :ret second))))
+
+(s/fdef mutate-shift
+        :args ::mutate-args
+        :ret (s/tuple ::dna ::dna-open?)
+        :fn (s/and #(= (count (-> % :ret first))
+                       (count (-> % :ret second)))
+                   #(= (count (-> % :args :dna+ first))
+                       (count (-> % :ret first)))
+                   #(= (count (-> % :args :dna+ second))
+                       (count (-> % :ret second)))))
+
+(s/fdef mutate-dup
+        :args ::mutate-args
+        :ret (s/tuple ::dna ::dna-open?)
+        :fn #(= (count (-> % :ret first))
+                (count (-> % :ret second))))
 
 (defn crossover
   "Finds the best global alignment between the two DNA sequences,
