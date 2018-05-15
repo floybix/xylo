@@ -25,7 +25,8 @@
 
 (deftest cell-fns-test
   (stest/instrument instr-syms)
-  (-> `[dna/mutate-pointwise
+  (-> `[dna/offset-into-open-dna
+        dna/mutate-pointwise
         dna/mutate-delete
         dna/mutate-shift
         dna/mutate-dup

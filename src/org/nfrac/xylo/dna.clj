@@ -11,6 +11,9 @@
    :gap-open-weight 4
    :gap-ext-weight 1.5})
 
+(def min-dna-length-in-codons 6)
+(def min-open-dna-length-in-codons 5)
+
 (def bases
   (seq "acgt"))
 
@@ -37,20 +40,33 @@
 
 (defn dna-gen
   []
-  (->> (s/gen (s/every ::base, :min-count (* 3 codon-length)))
+  (->> (s/gen (s/every ::base, :min-count (* min-dna-length-in-codons
+                                             codon-length)))
        (gen/fmap (fn [es]
                    (let [extra (mod (count es) codon-length)]
                      (apply str (drop extra es)))))))
 
-(s/def ::dna
+(s/def ::dna-fragment
   (->
    (s/and string?
           #(every? base? %)
           #(codon-boundary? (count %)))
    (s/with-gen dna-gen)))
 
+(s/def ::dna
+  (-> ::dna-fragment
+      (s/and #(codon-boundary? (count %)))
+      (s/with-gen dna-gen)))
+
+(s/def ::dna-open?-fragment
+  (s/every boolean?, :kind vector?))
+
 (s/def ::dna-open?
-  (s/every boolean?, :min-count 1, :kind vector?))
+  (->
+   (s/every boolean?, :kind vector?
+            :min-count (* min-dna-length-in-codons codon-length))
+   (s/and #(>= (count (filter true? %)) (* min-open-dna-length-in-codons
+                                           codon-length)))))
 
 (def op-names
   '[to-sun
@@ -138,14 +154,41 @@
        (count)
        (dec)))
 
+(s/fdef offset-into-full-dna
+        :args (-> (s/cat :offset nat-int?
+                         :dna-open? ::dna-open?)
+                  (s/and #(<= (:offset %) (count (filter true? (:dna-open? %))))))
+;        :fn #(= (offset-into-open-dna (-> % :ret) (-> % :args :dna-open?))
+;                (-> % :args :offset))
+        :ret nat-int?)
+
 (defn offset-into-open-dna
   "Truncates to most recent open base (towards start of dna). Returns -1
   if the offset is before any open dna."
   [offset-into-full-dna dna-open?]
-  (->> (take (inc offset-into-full-dna) dna-open?)
+  (->> (concat dna-open? [true]) ;; support n+1
+       (take (inc offset-into-full-dna))
        (filter true?)
        (count)
        (dec)))
+
+(s/def ::offset-into-open-dna-args
+  #_"Args spec for offset-into-open-dna, given an id here to allow generator override."
+  (-> (s/cat :offset nat-int?
+             :dna-open? ::dna-open?)
+      (s/and #(<= (:offset %) (count (:dna-open? %))))))
+
+(s/fdef offset-into-open-dna
+        :args ::offset-into-open-dna-args
+        :fn #(let [open-i (-> % :ret)
+                   full-lo (if (= open-i -1)
+                             0
+                             (offset-into-full-dna open-i (-> % :args :dna-open?)))
+                   full-hi (if (= open-i (count (filter true? (-> % :args :dna-open?))))
+                             (count (-> % :args :dna-open?))
+                             (dec (offset-into-full-dna (inc open-i) (-> % :args :dna-open?))))]
+               (<= full-lo (-> % :args :offset) full-hi))
+        :ret integer?)
 
 (s/def ::rng (-> #(satisfies? random/IRandom %)
                  (s/with-gen #(gen/fmap random/make-random (gen/int)))))
@@ -221,7 +264,7 @@
         i* (-> (rand-int r1 0 (count dna)) to-codon-boundary)
         j* (-> (rand-int r2 0 (count dna)) to-codon-boundary)
         [i j] (sort [i* j*])
-        k (rand-int r3 0 (inc (- (count dna) (- j i))))]
+        k (-> (rand-int r3 0 (inc (- (count dna) (- j i)))) to-codon-boundary)]
     [(->> (coll-mutate-shift dna i j k)
           (apply str))
      (->> (coll-mutate-shift dna-open? i j k)
@@ -249,7 +292,7 @@
           (vec))]
     ))
 
-(defn mutate
+(defn mutate*
   [[dna dna-open?] rng]
   (let [[r1 r2 r3 r4 r5 r6 r7] (random/split-n rng 7)]
     (cond-> [dna dna-open?]
@@ -261,6 +304,19 @@
       (mutate-shift r5)
       (< (random/rand-double r6) mutation-delete-prob)
       (mutate-delete r7))))
+
+(defn mutate
+  [[dna dna-open?] rng]
+  (loop [rng rng
+         i 0]
+    (assert (< i 20) (str "Mutate result too short. " dna ", " dna-open?))
+    (let [[rng rng*] (random/split rng)
+          [out-dna out-open?] (mutate* [dna dna-open?] rng*)
+          n-open (count (filter true? out-open?))]
+      (if (and (>= (count out-dna) (* min-dna-length-in-codons codon-length))
+               (>= n-open (* min-open-dna-length-in-codons codon-length)))
+        [out-dna out-open?]
+        (recur rng (inc i))))))
 
 (s/def ::mutate-args
   #_"Args spec for mutate, given an id here to allow generator override."
@@ -279,7 +335,7 @@
 
 (s/fdef mutate-delete
         :args ::mutate-args
-        :ret (s/tuple ::dna ::dna-open?)
+        :ret (s/tuple ::dna-fragment ::dna-open?-fragment)
         :fn #(= (count (-> % :ret first))
                 (count (-> % :ret second))))
 
@@ -299,7 +355,7 @@
         :fn #(= (count (-> % :ret first))
                 (count (-> % :ret second))))
 
-(defn crossover
+(defn crossover*
   "Finds the best global alignment between the two DNA sequences,
   chooses a number of crossover points, and alternates the sequences
   between those points."
@@ -331,6 +387,22 @@
           (->> dna
                (take (-> (count dna) (quot codon-length) (* codon-length)))
                (apply str)))))))
+
+(defn crossover
+  [dna1 dna2 rng]
+  (loop [rng rng
+         i 0]
+    (if (< i 20)
+      (let [[rng rng*] (random/split rng)
+            out (crossover* dna1 dna2 rng*)]
+        (if (>= (count out) (* min-dna-length-in-codons codon-length))
+          out
+          (recur rng (inc i))))
+      ;; repeated failure - result too short - pathological global match?
+      (do
+        (println "Warning: repeated crossover failure.")
+        dna1)
+      )))
 
 (s/fdef crossover
         :args (s/cat :dna1 ::dna

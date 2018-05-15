@@ -299,14 +299,15 @@
     (if (>= energy cost)
       (let [tem (read-template open-dna offset)
             terminator dna/codon-length
-            tem-idx [offset (+ offset (count tem))]]
+            tem-idx [offset (+ offset (count tem))]
+            next-offset (+ offset (count tem) terminator)]
         (if (>= (count tem) min-template-bases)
           {:delayed {:product {:dna (apply str (map dna/translate tem))}}
-           :next-offset (+ offset (count tem) terminator)
+           :next-offset next-offset
            :cell-immediate {:energy (- energy cost)}
            :read-idx {:template tem-idx}}
           ;; template too short
-          {:next-offset (+ offset (count tem) terminator)
+          {:next-offset next-offset
            :read-idx {:template tem-idx}}))
       ;; not enough energy
       {:next-offset :stop-reaction})))
@@ -355,26 +356,31 @@
         tem (read-template open-dna offset)
         terminator dna/codon-length
         tem-idx [offset (+ offset (count tem))]
-        next-offset (+ offset (count tem) terminator)]
+        next-offset (-> (+ offset (count tem) terminator) (min (count open-dna)))
+        dna (:dna cell)
+        dna-open (:dna-open? cell)]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
-      (let [dna (:dna cell)
-            dna-open (:dna-open? cell)]
-        (if-let [{:keys [start end match-idx]} (silence-target dna dna-open tem)]
-          (let [new-dna-open (dna/set-vector-range dna-open start end false)
-                next-offset-full (dna/offset-into-full-dna next-offset dna-open)
-                next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
-            {:cell-immediate {:dna-open? new-dna-open}
-             :next-offset (if (<= start next-offset-full end)
+      (if-let [{:keys [start end match-idx]} (silence-target dna dna-open tem)]
+        (let [new-dna-open (dna/set-vector-range dna-open start end false)]
+          (if (>= (count (filter true? new-dna-open))
+                  (* dna/min-open-dna-length-in-codons dna/codon-length))
+            (let [next-offset-full (dna/offset-into-full-dna next-offset dna-open)
+                  next-offset-adj (dna/offset-into-open-dna next-offset-full new-dna-open)]
+              {:cell-immediate {:dna-open? new-dna-open}
+               :next-offset (if (<= start next-offset-full end)
                               :stop-reaction ;; read head was silenced
                               next-offset-adj)
-             :read-idx {:template tem-idx
-                        :match-full match-idx
-                        :silenced [start end]}
-             })
-          ;; no match/target
-          {:next-offset next-offset
-           :read-idx {:template tem-idx}}))
+               :read-idx {:template tem-idx
+                          :match-full match-idx
+                          :silenced [start end]}
+               })
+            ;; open dna would be too short; abort silencing
+            {:next-offset next-offset
+             :read-idx {:template tem-idx}}))
+        ;; no match/target
+        {:next-offset next-offset
+         :read-idx {:template tem-idx}})
       ;; template too short
       {:next-offset next-offset
        :read-idx {:template tem-idx}})))
@@ -385,7 +391,7 @@
         tem (read-template open-dna offset)
         terminator dna/codon-length
         tem-idx [offset (+ offset (count tem))]
-        next-offset (+ offset (count tem) terminator)]
+        next-offset (-> (+ offset (count tem) terminator) (min (count open-dna)))]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
       (let [dna (:dna cell)
@@ -411,7 +417,8 @@
   (let [open-dna (get-open-dna cell)
         tem (read-template open-dna offset)
         terminator dna/codon-length
-        tem-idx [offset (+ offset (count tem))]]
+        tem-idx [offset (+ offset (count tem))]
+        next-offset (+ offset (count tem) terminator)]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
       (let [matches (binding-sites open-dna tem baseline-score)]
@@ -421,10 +428,10 @@
              :read-idx {:template tem-idx
                         :match [(:bind-begin-base match) (:bind-end-base match)]}})
           ;; no match
-          {:next-offset (+ offset (count tem) terminator)
+          {:next-offset next-offset
            :read-idx {:template tem-idx}}))
       ;; template too short
-      {:next-offset (+ offset (count tem) terminator)
+      {:next-offset next-offset
        :read-idx {:template tem-idx}})))
 
 (defmethod reaction-op* 'energy-test
@@ -436,8 +443,9 @@
       ;; test failed, skip goto
       (let [open-dna (get-open-dna cell)
             tem (read-template open-dna offset)
-            terminator dna/codon-length]
-        {:next-offset (+ offset (count tem) terminator)}))))
+            terminator dna/codon-length
+            next-offset (+ offset (count tem) terminator)]
+        {:next-offset next-offset}))))
 
 (defmethod reaction-op* 'to-sun
   [op cell offset cell-id phy]
@@ -571,7 +579,10 @@
               next-off* (+ offset dna/codon-length)
               r (reaction-op op (:cell ret) next-off* cell-id phy)
               next-off (or (:next-offset r) next-off*)
-              ]
+              _ (assert (or (= next-off :stop-reaction)
+                            (dna/codon-boundary? next-off))
+                        (str "Non codon aligned offset from " op ":" next-off
+                             "/" offset ". " r))]
           (recur next-off
                  (inc counter)
                  (= next-off :stop-reaction)
