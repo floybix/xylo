@@ -9,13 +9,14 @@
 (deftest seed-cell-test
   (let []
     (testing ""
-      (let [cell (-> (cell/seed-dna) (cell/new-cell) (assoc :energy 4))
+      (let [cell (-> (cell/example-dna) (cell/new-cell 0) (assoc :energy 4))
             [cell-id phy] (-> (phys-g/init 10 10) (phys/create-part [1 1]))
             dna (:dna cell)
             odna (cell/get-open-dna cell)
             cdna (apply str (map dna/complement dna))
             stim [(dna/fixed-stimuli :ground) cdna]
-            binds (cell/all-binding-sites odna [] stim (inc cell/baseline-score))
+            binds (cell/possible-binding-sites odna [] stim (inc cell/baseline-score)
+                                               cell/max-binding-sites)
             bind (cell/select-binding-site cell stim 1)]
         (doseq [b binds] (println b))
         (println "selected:")

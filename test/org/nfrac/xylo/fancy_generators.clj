@@ -14,7 +14,7 @@
 (defn cell-gen
   []
   (gen'/for [dna (s/gen ::dna/dna)
-             :let [cell* (cell/new-cell dna)
+             :let [cell* (cell/new-cell dna 0)
                    n (count dna)
                    max-silence (- n (* dna/min-open-dna-length-in-codons
                                        dna/codon-length))]
@@ -44,7 +44,8 @@
              :cell-pop {id1 cell1
                         id2 cell2}
              :sugar-from-to {}
-             :rng rng}))
+             :rng rng
+             :time-step 0}))
 
 (defn mutate-args-gen
   []

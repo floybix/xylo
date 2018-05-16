@@ -5,7 +5,7 @@
              :refer (is deftest testing run-tests)]))
 
 (deftest world-test
-  (let [world (sim/new-world 10 10 1)]
+  (let [world (sim/new-world 10 10 1 (cell/example-dna))]
     (testing "First step"
       (let [w1 (sim/world-step world)]
         ))
