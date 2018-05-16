@@ -206,6 +206,18 @@
   [rng xs]
   (nth xs (rand-int rng 0 (count xs))))
 
+(defn rand-dna
+  [rng length]
+  (->> (random/split-n rng length)
+       (map (fn [r]
+              (rand-nth r bases)))
+       (apply str)))
+
+(s/fdef rand-dna
+        :args (s/cat :rng ::rng
+                     :length nat-int?)
+        :ret ::dna-fragment)
+
 (def mutation-point-prob (double (/ 1 100)))
 (def mutation-delete-prob (double (/ 1 20)))
 (def mutation-shift-prob (double (/ 1 20)))

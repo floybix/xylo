@@ -58,7 +58,7 @@
         :args (s/cat :dna ::dna/dna)
         :ret ::cell)
 
-(defn seed-dna
+(defn example-dna
   []
   (->>
    (concat (first dna/terminators)

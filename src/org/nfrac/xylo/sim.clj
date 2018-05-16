@@ -324,11 +324,11 @@
         :ret ::world)
 
 (defn new-world
-  [width height seed]
+  [width height sim-seed init-dna]
   (let [phy (phys-g/init width height)
-        cell (cell/new-cell (cell/seed-dna))
+        cell (cell/new-cell init-dna)
         [cell-id phy] (phys/create-part phy [(quot width 2) 0])
-        rng (random/make-random seed)]
+        rng (random/make-random sim-seed)]
     {:physics phy
      :cell-pop {cell-id cell}
      :sugar-from-to {}
@@ -337,7 +337,8 @@
 (s/fdef new-world
         :args (s/cat :width pos?
                      :height pos?
-                     :seed int?)
+                     :sim-seed integer?
+                     :init-dna ::dna/dna)
         :ret ::world)
 
 ;; cache match score per location
