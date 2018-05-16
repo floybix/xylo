@@ -4,6 +4,10 @@ viz products
 
 viz sugar channels
 
+enforce spatial boundaries
+
+push into cell could destroy other cell? - attack & consume?
+
 
 ## impl
 

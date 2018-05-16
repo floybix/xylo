@@ -32,6 +32,8 @@
 
 (s/def ::starvation (s/int-in 0 (inc starvation-steps)))
 
+(s/def ::birthstep nat-int?)
+
 (s/def ::cell
   (->
    (s/keys :req-un [::dna/dna
@@ -39,23 +41,26 @@
                     ::product-counts
                     ::orientation
                     ::energy
-                    ::starvation])
+                    ::starvation
+                    ::birthstep])
    (s/and #(= (count (:dna %)) (count (:dna-open? %))))))
 
 (defn new-cell
-  [dna]
+  [dna time-step]
   (->
     {:dna dna
      :dna-open? (vec (repeat (count dna) true))
      :product-counts {}
      :orientation 0.0
      :energy 1
-     :starvation 0}
+     :starvation 0
+     :birthstep time-step}
     (vary-meta merge
                {::open-dna-cache (atom nil)})))
 
 (s/fdef new-cell
-        :args (s/cat :dna ::dna/dna)
+        :args (s/cat :dna ::dna/dna
+                     :time-step nat-int?)
         :ret ::cell)
 
 (defn example-dna
@@ -85,6 +90,23 @@
            (first dna/terminators)
            (dna/op->codon 'sugar-start)
            (dna/op->codon 'stop-reaction)
+           (first dna/sterminators)
+           (dna/op->codon 'product)
+           (first dna/no-ops)
+           (second dna/sterminators)
+           (second dna/no-ops)
+           (last dna/terminators)
+           (dna/op->codon 'silence)
+           (dna/op->codon 'sugar-start)
+           (dna/op->codon 'stop-reaction)
+           (last dna/sterminators)
+           (dna/op->codon 'unsilence)
+           (dna/op->codon 'energy-test)
+           (dna/op->codon 'bond-form)
+           (dna/op->codon 'energy-test)
+           (last dna/sterminators)
+           (dna/op->codon 'sex)
+           (first dna/terminators)
            )
    (apply str)))
 

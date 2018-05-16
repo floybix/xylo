@@ -7,6 +7,7 @@
             [clojure.spec.alpha :as s]))
 
 (def physics-dt 1.0)
+(def cell-age-limit 80)
 
 (s/def ::cell-pop
   (s/map-of ::phys/part-id ::cell/cell))
@@ -14,11 +15,14 @@
 (s/def ::sugar-from-to
   (s/every-kv ::phys/part-id (s/every ::phys/part-id, :kind set?)))
 
+(s/def ::time-step nat-int?)
+
 (s/def ::world
   (s/keys :req-un [::phys/physics
                    ::cell-pop
                    ::sugar-from-to
-                   ::dna/rng]))
+                   ::dna/rng
+                   ::time-step]))
 
 (defn find-stimuli
   [world cell-id touch-ids]
@@ -124,7 +128,7 @@
             [new-id phy] (phys/create-part phy new-pos)
             [rng rng*] (random/split (:rng world))
             [new-dna new-dna-open] (dna/mutate [(:dna cell) (:dna-open? cell)] rng*)
-            new-cell (-> (cell/new-cell new-dna)
+            new-cell (-> (cell/new-cell new-dna (:time-step world))
                          (assoc :dna-open? new-dna-open)
                          (assoc :orientation (:orientation cell))
                          (assoc-in [:product-counts child-product] 1))]
@@ -149,7 +153,7 @@
             sex-dna (:dna sex-cell)
             [rng rng*] (random/split (:rng world))
             new-dna (dna/crossover dna sex-dna rng*)
-            new-cell (-> (cell/new-cell new-dna)
+            new-cell (-> (cell/new-cell new-dna (:time-step world))
                          (assoc :orientation (:orientation cell))
                          (assoc-in [:product-counts child-product] 1))]
         ;; a new cell might have been created in the same place; if so, abort
@@ -279,6 +283,25 @@
         :args (s/cat :world ::world)
         :ret ::world)
 
+(defn age-step
+  "Removes any cells whose age is beyond the limit."
+  [world]
+  (reduce (fn [world cell-id]
+            (let [cell (get-in world [:cell-pop cell-id])
+                  birth (:birthstep cell)]
+              (if (< birth (- (:time-step world) cell-age-limit))
+                (-> world
+                    (update :physics phys/delete-part cell-id)
+                    (update :cell-pop dissoc cell-id)
+                    (update :sugar-from-to dissoc cell-id))
+                world)))
+          world
+          (keys (:cell-pop world))))
+
+(s/fdef age-step
+        :args (s/cat :world ::world)
+        :ret ::world)
+
 (defn pre-reaction-steps
   [world]
   (-> world
@@ -287,6 +310,7 @@
       (sun-step)
       (sugar-step)
       (metabolism-step)
+      (age-step)
       (init-step) ;; update for any destroyed cells
       ))
 
@@ -294,7 +318,7 @@
   "Selects a reaction for each cell, then applies all the reaction effects."
   [world]
   (let [touching (::touching-cache world)
-        time-step (inc (:time-step world 0))
+        time-step (inc (:time-step world))
         res (map (fn [cell-id]
                    [cell-id
                     (cell-reaction world cell-id (touching cell-id) time-step)])
@@ -326,13 +350,14 @@
 (defn new-world
   [width height sim-seed init-dna]
   (let [phy (phys-g/init width height)
-        cell (cell/new-cell init-dna)
+        cell (cell/new-cell init-dna 0)
         [cell-id phy] (phys/create-part phy [(quot width 2) 0])
         rng (random/make-random sim-seed)]
     {:physics phy
      :cell-pop {cell-id cell}
      :sugar-from-to {}
-     :rng rng}))
+     :rng rng
+     :time-step 0}))
 
 (s/fdef new-world
         :args (s/cat :width pos?

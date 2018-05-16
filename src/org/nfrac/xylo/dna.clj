@@ -105,6 +105,7 @@
 (s/def ::op-code (set (vals codon->op)))
 
 (def terminators (keep (fn [[codon op]] (when (= op :terminator) codon)) codon->op))
+(def sterminators (keep (fn [[codon op]] (when (= op :silence-terminator) codon)) codon->op))
 (def no-ops (keep (fn [[codon op]] (when (= op :no-op) codon)) codon->op))
 
 (def fixed-stimuli
