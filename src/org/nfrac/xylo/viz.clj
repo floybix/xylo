@@ -255,8 +255,9 @@
         open? (:dna-open? cell)
         odna (cell/get-open-dna cell)
         products (keys (:product-counts cell))
-        binds (->> (cell/all-binding-sites odna products (map :dna stimuli)
-                                           (inc cell/baseline-score))
+        binds (->> (cell/possible-binding-sites odna products (map :dna stimuli)
+                                                (inc cell/baseline-score)
+                                                cell/max-binding-sites)
                    (map-indexed (fn [bind-i bind]
                                   (let [[kind kind-i j] (:path bind)
                                         vs-dna (case kind

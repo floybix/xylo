@@ -6,7 +6,7 @@
             [clojure.spec.alpha :as s]
             [clojure.test.check.random :as random]))
 
-
+(def max-binding-sites 4)
 (def baseline-score 5)
 (def weight-power 1)
 (def min-template-bases (* 2 dna/codon-length))
@@ -68,6 +68,7 @@
   (->>
    (concat (first dna/terminators)
            (dna/fixed-stimuli :sun)
+           (dna/op->codon 'rot-left)
            (dna/op->codon 'clone)
            (dna/op->codon 'bond-form)
            (dna/op->codon 'stop-reaction)
@@ -91,6 +92,9 @@
            (dna/op->codon 'sugar-start)
            (dna/op->codon 'stop-reaction)
            (first dna/sterminators)
+           (dna/op->codon 'rot-right)
+           (dna/op->codon 'rot-right)
+           (dna/op->codon 'sex)
            (dna/op->codon 'product)
            (first dna/no-ops)
            (second dna/sterminators)
@@ -105,7 +109,10 @@
            (dna/op->codon 'bond-form)
            (dna/op->codon 'energy-test)
            (last dna/sterminators)
+           (dna/op->codon 'rot-left)
            (dna/op->codon 'sex)
+           (dna/op->codon 'about-face)
+           (dna/op->codon 'push)
            (first dna/terminators)
            )
    (apply str)))
@@ -146,8 +153,8 @@
   included. Keys bind-begin and bind-end-x give the start (inclusive)
   and end (exclusive) indexes to dna of the match, aligned to codon
   boundaries."
-  [dna vs-dna min-score]
-  (let [matches (ali/multi-align dna vs-dna min-score dna/align-options)
+  [dna vs-dna min-score max-sites]
+  (let [matches (ali/multi-align dna vs-dna min-score max-sites dna/align-options)
         nnn dna/codon-length]
     (->> matches
          (map (fn [m]
@@ -164,33 +171,36 @@
 (s/fdef binding-sites
         :args (s/cat :dna ::dna/dna
                      :vs-dna ::dna/dna
-                     :min-score pos-int?)
+                     :min-score pos-int?
+                     :max-sites pos-int?)
         :ret (s/coll-of ::bind))
 
-(defn all-binding-sites
+(defn possible-binding-sites
   "Finds all possible binding sites of a cell's DNA onto internal
   products or external stimuli. The results include a key :path which
   describes the source of each match as [kind i j]; kind is :stimuli
   or :products, i indicates which stimulus or product, and j is the
   index into its dna-like sequence. Ordered by score decreasing, and
   then by DNA offset."
-  [dna products stimuli min-score]
+  [dna products stimuli min-score max-sites]
   (->>
    (concat (map vector (repeat :products) (range) products)
            (map vector (repeat :stimuli) (range) stimuli))
    (reduce (fn [out [kind kind-i vs-dna]]
-             (->> (binding-sites dna vs-dna min-score)
+             (->> (binding-sites dna vs-dna min-score max-sites)
                   (map (fn [m]
                          (assoc m :path [kind kind-i (:vs-end-base m)])))
                   (into out)))
            ())
-   (sort-by (juxt (comp - :score) :bind-end-x :vs-end-base))))
+   (sort-by (juxt (comp - :score) :bind-end-x :vs-end-base))
+   (take max-sites)))
 
-(s/fdef all-binding-sites
+(s/fdef possible-binding-sites
         :args (s/cat :dna ::dna/dna
                      :products (s/nilable (s/every ::dna/dna))
                      :stimuli (s/nilable (s/every ::dna/dna))
-                     :min-score pos-int?)
+                     :min-score pos-int?
+                     :max-sites pos-int?)
         :ret (s/coll-of ::bind-with-path))
 
 (defn binding-site-weight
@@ -208,7 +218,8 @@
   [cell stimuli time-step]
   (let [odna (get-open-dna cell)
         products (keys (:product-counts cell))
-        binds (all-binding-sites odna products stimuli (inc baseline-score))
+        binds (possible-binding-sites odna products stimuli (inc baseline-score)
+                                      max-binding-sites)
         cum (reductions + (map #(binding-site-weight (:score %) baseline-score
                                                      weight-power)
                                binds))
@@ -343,7 +354,7 @@
   [dna dna-open? tem]
   ;; NOTE: use dna not open-dna because that is idempotent,
   ;; i.e. stably repeatable after silencing has taken effect
-  (let [matches (binding-sites dna tem baseline-score)
+  (let [matches (binding-sites dna tem baseline-score 1)
         terminator dna/codon-length]
     (if (seq matches)
       (let [match (apply max-key :score matches)
@@ -443,7 +454,7 @@
         next-offset (+ offset (count tem) terminator)]
     (if (>= (count tem) min-template-bases)
       ;; find best matching site
-      (let [matches (binding-sites open-dna tem baseline-score)]
+      (let [matches (binding-sites open-dna tem baseline-score 1)]
         (if (seq matches)
           (let [match (apply max-key :score matches)]
             {:next-offset (:bind-end-x match)

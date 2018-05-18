@@ -123,15 +123,18 @@
 
   Remember that either a substitution matrix must be supplied or the
   alphabet specified."
-  [s1 s2 min-score opts]
+  [s1 s2 min-score max-sites opts]
   (loop [s1-mask s1
          ans []]
     (let [a (align s1-mask s2 opts)]
       (if (>= (:score a) min-score)
         (let [[q0 _] (first (:match-path a))
-              q1 (:end-query a)]
-          (recur (mask-out s1-mask q0 q1 \_)
-                 (conj ans a)))
+              q1 (:end-query a)
+              new-ans (conj ans a)]
+          (if (= (count new-ans) max-sites)
+            new-ans
+            (recur (mask-out s1-mask q0 q1 \_)
+                   new-ans)))
         ;; done
         ans))))
 
